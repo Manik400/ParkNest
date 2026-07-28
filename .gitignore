@@ -1,0 +1,43 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+publish/
+*.user
+*.suo
+
+# IDE
+.vs/
+.idea/
+*.swp
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Test / coverage
+TestResults/
+coverage/
+*.coverage
+*.trx
+
+# Secrets and local config — never commit connection strings or aggregator keys
+appsettings.Local.json
+appsettings.*.Local.json
+.env
+.env.*
+!.env.example
+*.pfx
+
+# Flutter / Angular (Phase 0 clients land here)
+node_modules/
+dist/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+**/build/
+
+# OS
+.DS_Store
+Thumbs.db

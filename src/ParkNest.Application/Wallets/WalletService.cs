@@ -1,0 +1,241 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ParkNest.Application.Abstractions;
+using ParkNest.Application.Options;
+using ParkNest.Domain.Common;
+using ParkNest.Domain.Payouts;
+using ParkNest.Domain.Wallets;
+
+namespace ParkNest.Application.Wallets;
+
+/// <summary>
+/// Credit operations expressed in product terms. All actual balance movement delegates to
+/// <see cref="ILedgerService"/> — this class only decides <em>which</em> postings to make.
+/// </summary>
+public sealed class WalletService : IWalletService
+{
+    private readonly IParkNestDbContext _db;
+    private readonly ILedgerService _ledger;
+    private readonly IClock _clock;
+    private readonly PlatformOptions _options;
+
+    public WalletService(
+        IParkNestDbContext db,
+        ILedgerService ledger,
+        IClock clock,
+        IOptions<PlatformOptions> options)
+    {
+        _db = db;
+        _ledger = ledger;
+        _clock = clock;
+        _options = options.Value;
+    }
+
+    public async Task<Wallet> GetOrCreateWalletAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var wallet = await _db.Wallets.FirstOrDefaultAsync(w => w.UserId == userId, cancellationToken);
+        if (wallet is not null)
+        {
+            return wallet;
+        }
+
+        wallet = new Wallet { UserId = userId, CreatedAt = _clock.UtcNow };
+        _db.Wallets.Add(wallet);
+        await _db.SaveChangesAsync(cancellationToken);
+        return wallet;
+    }
+
+    public async Task<Wallet> RechargeAsync(Guid userId, decimal amount, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        amount = Money.Round(amount);
+        if (amount < _options.MinimumRechargeCredits)
+        {
+            throw new DomainException($"Minimum recharge is {_options.MinimumRechargeCredits:0.00} credits.");
+        }
+
+        var wallet = await GetOrCreateWalletAsync(userId, cancellationToken);
+
+        await _ledger.PostAsync(
+            LedgerTransactionType.Recharge,
+            idempotencyKey,
+            new[]
+            {
+                LedgerPosting.Debit(null, LedgerAccountType.ExternalFunding, amount),
+                LedgerPosting.Credit(wallet.Id, LedgerAccountType.Spendable, amount)
+            },
+            description: $"Recharge {amount:0.00} credits",
+            cancellationToken: cancellationToken);
+
+        return wallet;
+    }
+
+    public async Task<Wallet> PlaceHoldAsync(Guid userId, Guid bookingId, decimal amount, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        amount = Money.Round(amount);
+        var wallet = await GetOrCreateWalletAsync(userId, cancellationToken);
+
+        if (wallet.SpendableBalance < amount)
+        {
+            throw new InsufficientCreditsException(amount, wallet.SpendableBalance);
+        }
+
+        await _ledger.PostAsync(
+            LedgerTransactionType.Hold,
+            idempotencyKey,
+            new[]
+            {
+                LedgerPosting.Debit(wallet.Id, LedgerAccountType.Spendable, amount),
+                LedgerPosting.Credit(wallet.Id, LedgerAccountType.Held, amount)
+            },
+            bookingId,
+            $"Hold {amount:0.00} credits for booking {bookingId}",
+            cancellationToken);
+
+        return wallet;
+    }
+
+    public async Task<Wallet> ReleaseHoldAsync(Guid userId, Guid bookingId, decimal amount, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        amount = Money.Round(amount);
+        var wallet = await GetOrCreateWalletAsync(userId, cancellationToken);
+
+        if (amount <= 0m)
+        {
+            return wallet;
+        }
+
+        await _ledger.PostAsync(
+            LedgerTransactionType.ReleaseHold,
+            idempotencyKey,
+            new[]
+            {
+                LedgerPosting.Debit(wallet.Id, LedgerAccountType.Held, amount),
+                LedgerPosting.Credit(wallet.Id, LedgerAccountType.Spendable, amount)
+            },
+            bookingId,
+            $"Release {amount:0.00} unused credits for booking {bookingId}",
+            cancellationToken);
+
+        return wallet;
+    }
+
+    public async Task<OverstayDebitResult> DebitOverstayAsync(Guid userId, Guid bookingId, decimal amount, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        amount = Money.Round(amount);
+        if (amount <= 0m)
+        {
+            return new OverstayDebitResult(0m, 0m);
+        }
+
+        var wallet = await GetOrCreateWalletAsync(userId, cancellationToken);
+
+        // Take whatever the renter has rather than failing outright: partial coverage still moves
+        // real value to the host, and the remainder becomes a tracked shortfall (PRD §5.1.4).
+        var covered = Math.Min(amount, wallet.SpendableBalance);
+        var shortfall = Money.Round(amount - covered);
+
+        if (covered > 0m)
+        {
+            await _ledger.PostAsync(
+                LedgerTransactionType.OverstayDebit,
+                idempotencyKey,
+                new[]
+                {
+                    LedgerPosting.Debit(wallet.Id, LedgerAccountType.Spendable, covered),
+                    LedgerPosting.Credit(wallet.Id, LedgerAccountType.Held, covered)
+                },
+                bookingId,
+                $"Overstay debit {covered:0.00} credits for booking {bookingId}",
+                cancellationToken);
+        }
+
+        return new OverstayDebitResult(covered, shortfall);
+    }
+
+    public async Task<SettlementResult> SettleAsync(SettlementRequest request, CancellationToken cancellationToken = default)
+    {
+        var gross = Money.Round(request.AmountFromHold);
+        if (gross <= 0m)
+        {
+            return new SettlementResult(0m, 0m, 0m);
+        }
+
+        var renterWallet = await GetOrCreateWalletAsync(request.RenterId, cancellationToken);
+        var hostWallet = await GetOrCreateWalletAsync(request.HostId, cancellationToken);
+
+        var fee = Money.Round(gross * _options.CommissionRate);
+        var hostShare = Money.Round(gross - fee);
+
+        var postings = new List<LedgerPosting>
+        {
+            LedgerPosting.Debit(renterWallet.Id, LedgerAccountType.Held, gross),
+            LedgerPosting.Credit(hostWallet.Id, LedgerAccountType.Earning, hostShare)
+        };
+
+        if (fee > 0m)
+        {
+            postings.Add(LedgerPosting.Credit(null, LedgerAccountType.PlatformRevenue, fee));
+        }
+
+        await _ledger.PostAsync(
+            LedgerTransactionType.Settlement,
+            request.IdempotencyKey,
+            postings,
+            request.BookingId,
+            $"Settle booking {request.BookingId}: {hostShare:0.00} to host, {fee:0.00} commission",
+            cancellationToken);
+
+        return new SettlementResult(gross, fee, hostShare);
+    }
+
+    public async Task<Payout> RequestCashOutAsync(Guid hostId, decimal amount, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        amount = Money.Round(amount);
+
+        var host = await _db.Users.FirstOrDefaultAsync(u => u.Id == hostId, cancellationToken)
+                   ?? throw new DomainException($"User {hostId} does not exist.");
+
+        if (host.KycStatus != KycStatus.Verified)
+        {
+            throw new DomainException("KYC must be verified before a cash-out can be requested.");
+        }
+
+        var wallet = await GetOrCreateWalletAsync(hostId, cancellationToken);
+
+        if (amount < _options.MinimumCashOutCredits)
+        {
+            throw new DomainException($"Minimum cash-out is {_options.MinimumCashOutCredits:0.00} credits.");
+        }
+
+        if (wallet.EarningBalance < amount)
+        {
+            throw new InsufficientCreditsException(amount, wallet.EarningBalance);
+        }
+
+        var payout = new Payout
+        {
+            HostId = hostId,
+            Amount = amount,
+            Status = PayoutStatus.Requested,
+            CreatedAt = _clock.UtcNow
+        };
+
+        // The ledger debit happens now so the credits cannot be double-spent while the payout is in
+        // flight. A failed payout is corrected by a compensating Refund transaction, never a delete.
+        await _ledger.PostAsync(
+            LedgerTransactionType.Payout,
+            idempotencyKey,
+            new[]
+            {
+                LedgerPosting.Debit(wallet.Id, LedgerAccountType.Earning, amount),
+                LedgerPosting.Credit(null, LedgerAccountType.ExternalPayout, amount)
+            },
+            description: $"Payout {amount:0.00} credits to host {hostId}",
+            cancellationToken: cancellationToken);
+
+        _db.Payouts.Add(payout);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return payout;
+    }
+}

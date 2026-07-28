@@ -1,0 +1,23 @@
+using Microsoft.Extensions.DependencyInjection;
+using ParkNest.Application.Abstractions;
+using ParkNest.Application.Bookings;
+using ParkNest.Application.Listings;
+using ParkNest.Application.Pricing;
+using ParkNest.Application.Wallets;
+
+namespace ParkNest.Application;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddParkNestApplication(this IServiceCollection services)
+    {
+        services.AddSingleton<IClock, SystemClock>();
+        services.AddScoped<ILedgerService, LedgerService>();
+        services.AddScoped<IWalletService, WalletService>();
+        services.AddScoped<IPricingService, PricingService>();
+        services.AddScoped<IListingService, ListingService>();
+        services.AddScoped<IBookingService, BookingService>();
+
+        return services;
+    }
+}
