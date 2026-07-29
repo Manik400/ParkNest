@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A new push to the same PR cancels the previous run — no point burning minutes on a stale commit.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Restores dotnet-ef at the version pinned in .config/dotnet-tools.json.
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      # The suite runs on in-memory SQLite, so no database service container is needed.
+      - name: Test
+        run: >
+          dotnet test --no-build -c Release
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory ${{ github.workspace }}/TestResults
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: ${{ github.workspace }}/TestResults
+          retention-days: 14
+
+  migrations-apply:
+    name: Migrations apply to a real PostGIS database
+    runs-on: ubuntu-latest
+
+    # The SQLite test suite never exercises the PostGIS column, the CHECK constraints or the
+    # append-only trigger. This job is the only thing that proves the migrations actually run.
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: parknest
+          POSTGRES_USER: parknest
+          POSTGRES_PASSWORD: parknest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U parknest -d parknest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Apply migrations
+        env:
+          PARKNEST_CONNECTION: Host=localhost;Port=5432;Database=parknest;Username=parknest;Password=parknest
+        run: >
+          dotnet dotnet-ef database update
+          --project src/ParkNest.Infrastructure
+          --startup-project src/ParkNest.Api
+
+      - name: Verify PostGIS column, index and ledger invariants exist
+        env:
+          PGPASSWORD: parknest
+        run: bash .github/scripts/verify-schema.sh

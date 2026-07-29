@@ -1,0 +1,89 @@
+name: Ledger Guard
+
+# Fires only when a PR touches code that can move credits. Everywhere else in the codebase a
+# mistake is a bug; here it is someone's money, so these paths get extra scrutiny.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/ParkNest.Domain/Wallets/**'
+      - 'src/ParkNest.Application/Wallets/**'
+      - 'src/ParkNest.Application/Bookings/**'
+      - 'src/ParkNest.Infrastructure/Persistence/Migrations/**'
+
+concurrency:
+  group: ledger-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  guard:
+    name: Ledger invariant guard
+    runs-on: ubuntu-latest
+
+    steps:
+      # Full history so the script can diff against the base branch.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Static guards
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash .github/scripts/ledger-guard.sh
+
+      - name: Ledger and settlement tests
+        run: >
+          dotnet test -c Release
+          --filter "FullyQualifiedName~LedgerServiceTests|FullyQualifiedName~BookingSettlementTests|FullyQualifiedName~PricingAndPayoutTests"
+
+      - name: Flag for human review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- ledger-guard -->';
+            const body = [
+              marker,
+              '### 💰 This PR touches money code',
+              '',
+              'Changed paths include the ledger, wallet, booking settlement or migrations.',
+              'Automated guards passed, but please confirm by hand before merging:',
+              '',
+              '- [ ] Every new credit movement goes through `LedgerService.PostAsync` — no direct balance assignment',
+              '- [ ] Each new transaction type is balanced (debits == credits) and has a test',
+              '- [ ] Any new wallet-mutating entry point takes an idempotency key',
+              '- [ ] Rounding goes through `Money.Round` before amounts reach the ledger',
+              '- [ ] `docs/ledger-model.md` updated if the account model or a transaction shape changed',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            // Update in place rather than stacking a new comment on every push.
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
