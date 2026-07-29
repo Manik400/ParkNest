@@ -14,14 +14,23 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [x] Listings: draft, publish with band validation, status changes
 - [x] PostGIS generated column + GiST index + geo-search query
 - [x] DB-level ledger invariants: CHECK constraints, append-only trigger
-- [x] 26 service-level tests on in-memory SQLite
+- [x] 48 service-level tests on in-memory SQLite
 - [x] Docker Compose: Postgres/PostGIS, Redis, RabbitMQ
+- [x] CI: build/test, migrations applied to real PostGIS, schema invariants verified
+- [x] Conditional ledger guard on money paths + on-demand `@claude` PR review
+- [x] Phone + OTP authentication, ownership and role checks
 
 ### Next up
-- [ ] **Auth & identity.** Every endpoint is open right now. `RenterId`/`HostId` must come from a
-      token, not the request body. Blocking anything user-facing.
-- [ ] **Recharge via aggregator webhook only.** The current direct endpoint credits without a
-      verified payment — a fraud hole if it survives into production. See
+- [x] **Auth & identity.** Phone + OTP login issuing JWTs; services take the acting user from the
+      token and the user id is gone from request DTOs entirely. See
+      [adr/0005](adr/0005-phone-otp-auth.md).
+- [ ] **OTP rate limiting.** The per-code attempt cap is in, but nothing limits how many codes a
+      caller can request — an attacker can burn SMS budget freely. Needed before launch.
+- [ ] **Refresh tokens and revocation.** Access tokens live 12 hours with no way to revoke one.
+- [ ] **Real SMS gateway.** Only the dev logging sender exists; startup deliberately fails in
+      Production until a real one is wired.
+- [ ] **Recharge via aggregator webhook only.** Now admin-gated, which closes the "anyone can mint
+      credits" hole, but it still is not driven by a verified payment. See
       [adr/0004](adr/0004-credits-are-not-a-wallet.md).
 - [ ] Payout failure handling: compensating `Refund` transaction when the aggregator rejects
 - [ ] Availability enforcement — `AvailabilityWindow` and `AvailabilityBlackout` are modelled and

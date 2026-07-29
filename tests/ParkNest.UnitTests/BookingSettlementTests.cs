@@ -28,6 +28,9 @@ public sealed class BookingSettlementTests : IDisposable
 
         await _h.Wallets.RechargeAsync(renter.Id, rechargeAmount, $"recharge:{renter.Id}");
 
+        // Everything below acts as the renter, which is who the booking endpoints authorise against.
+        _h.CurrentUser.SignIn(renter.Id);
+
         return (renter.Id, host.Id, space.Id, vehicle.Id);
     }
 
@@ -37,7 +40,7 @@ public sealed class BookingSettlementTests : IDisposable
         var (renterId, _, spaceId, vehicleId) = await SetupAsync();
 
         var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
-            renterId, spaceId, vehicleId, TestHarness.Origin, 60, "bk-1"));
+            spaceId, vehicleId, TestHarness.Origin, 60, "bk-1"));
 
         booking.HoldAmount.Should().Be(60m);
         booking.Status.Should().Be(BookingStatus.Held);
@@ -53,7 +56,7 @@ public sealed class BookingSettlementTests : IDisposable
         var (renterId, _, spaceId, vehicleId) = await SetupAsync(rechargeAmount: 100m);
 
         var act = () => _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
-            renterId, spaceId, vehicleId, TestHarness.Origin, 240, "bk-1"));
+            spaceId, vehicleId, TestHarness.Origin, 240, "bk-1"));
 
         await act.Should().ThrowAsync<InsufficientCreditsException>();
 
@@ -67,7 +70,7 @@ public sealed class BookingSettlementTests : IDisposable
         var (renterId, hostId, spaceId, vehicleId) = await SetupAsync();
 
         var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
-            renterId, spaceId, vehicleId, TestHarness.Origin, 120, "bk-1"));
+            spaceId, vehicleId, TestHarness.Origin, 120, "bk-1"));
         booking.HoldAmount.Should().Be(120m);
 
         await _h.Bookings.StartSessionAsync(booking.Id, DetectionMethod.AppConfirmed, TestHarness.Origin);
@@ -96,7 +99,7 @@ public sealed class BookingSettlementTests : IDisposable
         var (renterId, hostId, spaceId, vehicleId) = await SetupAsync();
 
         var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
-            renterId, spaceId, vehicleId, TestHarness.Origin, 60, "bk-1"));
+            spaceId, vehicleId, TestHarness.Origin, 60, "bk-1"));
 
         await _h.Bookings.StartSessionAsync(booking.Id, DetectionMethod.AppConfirmed, TestHarness.Origin);
 
@@ -124,7 +127,7 @@ public sealed class BookingSettlementTests : IDisposable
         var (renterId, _, spaceId, vehicleId) = await SetupAsync(overstayMultiplier: 1.5m);
 
         var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
-            renterId, spaceId, vehicleId, TestHarness.Origin, 60, "bk-1"));
+            spaceId, vehicleId, TestHarness.Origin, 60, "bk-1"));
         await _h.Bookings.StartSessionAsync(booking.Id, DetectionMethod.AppConfirmed, TestHarness.Origin);
 
         var outcome = await _h.Bookings.EndSessionAsync(
@@ -142,7 +145,7 @@ public sealed class BookingSettlementTests : IDisposable
         var (renterId, hostId, spaceId, vehicleId) = await SetupAsync(rechargeAmount: 100m);
 
         var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
-            renterId, spaceId, vehicleId, TestHarness.Origin, 60, "bk-1"));
+            spaceId, vehicleId, TestHarness.Origin, 60, "bk-1"));
         await _h.Bookings.StartSessionAsync(booking.Id, DetectionMethod.AppConfirmed, TestHarness.Origin);
 
         // 3 hours parked: 60 held, 120 more owed, only 40 spendable left.
@@ -170,7 +173,7 @@ public sealed class BookingSettlementTests : IDisposable
         var (renterId, _, spaceId, vehicleId) = await SetupAsync();
 
         var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
-            renterId, spaceId, vehicleId, TestHarness.Origin, 120, "bk-1"));
+            spaceId, vehicleId, TestHarness.Origin, 120, "bk-1"));
 
         await _h.Bookings.CancelBookingAsync(booking.Id);
 
@@ -185,10 +188,10 @@ public sealed class BookingSettlementTests : IDisposable
         var (renterId, _, spaceId, vehicleId) = await SetupAsync();
 
         await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
-            renterId, spaceId, vehicleId, TestHarness.Origin, 120, "bk-1"));
+            spaceId, vehicleId, TestHarness.Origin, 120, "bk-1"));
 
         var act = () => _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
-            renterId, spaceId, vehicleId, TestHarness.Origin.AddMinutes(60), 60, "bk-2"));
+            spaceId, vehicleId, TestHarness.Origin.AddMinutes(60), 60, "bk-2"));
 
         await act.Should().ThrowAsync<DomainException>()
             .WithMessage("*already booked*");
@@ -199,7 +202,7 @@ public sealed class BookingSettlementTests : IDisposable
     {
         var (renterId, _, spaceId, vehicleId) = await SetupAsync();
 
-        var request = new CreateBookingRequest(renterId, spaceId, vehicleId, TestHarness.Origin, 60, "bk-retry");
+        var request = new CreateBookingRequest(spaceId, vehicleId, TestHarness.Origin, 60, "bk-retry");
 
         var first = await _h.Bookings.CreateBookingAsync(request);
         var second = await _h.Bookings.CreateBookingAsync(request);

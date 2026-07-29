@@ -27,6 +27,26 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
     }
 }
 
+public sealed class OtpCodeConfiguration : IEntityTypeConfiguration<OtpCode>
+{
+    public void Configure(EntityTypeBuilder<OtpCode> builder)
+    {
+        builder.ToTable("otp_codes");
+        builder.HasKey(o => o.Id);
+
+        builder.Property(o => o.Phone).HasMaxLength(20).IsRequired();
+        builder.Property(o => o.CodeHash).HasMaxLength(64).IsRequired();
+
+        // Verification looks up the newest unconsumed code for a number.
+        builder.HasIndex(o => new { o.Phone, o.ConsumedAt, o.CreatedAt });
+
+        // Lets a cleanup job drop expired rows cheaply.
+        builder.HasIndex(o => o.ExpiresAt);
+
+        builder.Ignore(o => o.IsConsumed);
+    }
+}
+
 public sealed class VehicleConfiguration : IEntityTypeConfiguration<Vehicle>
 {
     public void Configure(EntityTypeBuilder<Vehicle> builder)

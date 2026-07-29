@@ -19,6 +19,7 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<Vehicle> Vehicles => Set<Vehicle>();
+    public DbSet<OtpCode> OtpCodes => Set<OtpCode>();
     public DbSet<ParkingSpace> ParkingSpaces => Set<ParkingSpace>();
     public DbSet<SpaceVehicleSupport> SpaceVehicleSupports => Set<SpaceVehicleSupport>();
     public DbSet<SpacePhoto> SpacePhotos => Set<SpacePhoto>();

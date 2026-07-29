@@ -21,8 +21,11 @@ public interface IBookingService
     Task<Booking> CancelBookingAsync(Guid bookingId, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Note the absence of a renter id: the renter is always the authenticated caller. Accepting one
+/// here would mean trusting the client's claim about who it is.
+/// </summary>
 public sealed record CreateBookingRequest(
-    Guid RenterId,
     Guid ParkingSpaceId,
     Guid VehicleId,
     DateTimeOffset StartTime,

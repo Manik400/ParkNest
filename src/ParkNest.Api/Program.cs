@@ -1,26 +1,95 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using ParkNest.Api.Auth;
+using ParkNest.Application.Abstractions;
+using ParkNest.Application.Options;
 using ParkNest.Domain.Common;
 using ParkNest.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddParkNestInfrastructure(builder.Configuration);
+builder.Services.AddParkNestInfrastructure(builder.Configuration, builder.Environment);
+
+var authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>()!;
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = authOptions.Issuer,
+            ValidAudience = authOptions.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(authOptions.SigningKey)),
+            // Default is 5 minutes, which lets a revoked-looking token linger. Sessions are long
+            // enough that we don't need the slack.
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+
+// Deny by default. Anything reachable without a token must opt out with [AllowAnonymous], so
+// forgetting an attribute fails closed rather than exposing an endpoint.
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
+
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo { Title = "ParkNest API", Version = "v1" });
+
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Paste the access token from POST /api/auth/verify-otp."
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 var app = builder.Build();
 
-// Business-rule failures are client errors, not 500s. Mapping them centrally keeps controllers
-// free of try/catch and gives mobile clients a stable error contract.
+// Failures are mapped centrally so controllers stay free of try/catch and clients get a stable
+// error contract. Note the split: 401 means "who are you", 403 means "not yours", 400 means the
+// request broke a business rule, 402 means the renter is short on credits.
 app.UseExceptionHandler(handler => handler.Run(async context =>
 {
     var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
 
     var (status, title) = exception switch
     {
+        UnauthorizedException => (StatusCodes.Status401Unauthorized, "Authentication required"),
+        ForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden"),
         InsufficientCreditsException => (StatusCodes.Status402PaymentRequired, "Insufficient credits"),
         DomainException => (StatusCodes.Status400BadRequest, "Request rejected"),
         _ => (StatusCodes.Status500InternalServerError, "Unexpected error")
@@ -30,6 +99,7 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
     {
         Status = status,
         Title = title,
+        // Never echo an internal exception message to the caller.
         Detail = status == StatusCodes.Status500InternalServerError ? null : exception?.Message,
         Type = exception?.GetType().Name
     };
@@ -44,8 +114,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapControllers();
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 
 app.Run();
 

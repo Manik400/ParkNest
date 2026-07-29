@@ -16,8 +16,9 @@ public interface IListingService
     Task<ParkingSpace> SetStatusAsync(Guid spaceId, SpaceStatus status, CancellationToken cancellationToken = default);
 }
 
+/// <summary>The host is always the authenticated caller — see <see cref="CreateBookingRequest"/>
+/// for the same reasoning about not accepting a caller-supplied user id.</summary>
 public sealed record CreateListingRequest(
-    Guid HostId,
     string Title,
     string AddressLine,
     string City,
@@ -32,12 +33,14 @@ public sealed class ListingService : IListingService
     private readonly IParkNestDbContext _db;
     private readonly IPricingService _pricing;
     private readonly IClock _clock;
+    private readonly ICurrentUser _currentUser;
 
-    public ListingService(IParkNestDbContext db, IPricingService pricing, IClock clock)
+    public ListingService(IParkNestDbContext db, IPricingService pricing, IClock clock, ICurrentUser currentUser)
     {
         _db = db;
         _pricing = pricing;
         _clock = clock;
+        _currentUser = currentUser;
     }
 
     public async Task<ParkingSpace> CreateDraftAsync(CreateListingRequest request, CancellationToken cancellationToken = default)
@@ -47,8 +50,10 @@ public sealed class ListingService : IListingService
             throw new DomainException("A listing must support at least one vehicle type.");
         }
 
-        var host = await _db.Users.FirstOrDefaultAsync(u => u.Id == request.HostId, cancellationToken)
-                   ?? throw new DomainException($"User {request.HostId} does not exist.");
+        var hostId = _currentUser.RequireUserId();
+
+        var host = await _db.Users.FirstOrDefaultAsync(u => u.Id == hostId, cancellationToken)
+                   ?? throw new DomainException($"User {hostId} does not exist.");
 
         if (!host.IsHost)
         {
@@ -57,7 +62,7 @@ public sealed class ListingService : IListingService
 
         var space = new ParkingSpace
         {
-            HostId = request.HostId,
+            HostId = hostId,
             Title = request.Title,
             AddressLine = request.AddressLine,
             City = request.City,
@@ -115,9 +120,18 @@ public sealed class ListingService : IListingService
         return space;
     }
 
-    private async Task<ParkingSpace> LoadAsync(Guid spaceId, CancellationToken cancellationToken) =>
-        await _db.ParkingSpaces
+    /// <summary>
+    /// Loads a space the caller is allowed to change. Without the ownership check any host could
+    /// publish, pause or delist a competitor's listing.
+    /// </summary>
+    private async Task<ParkingSpace> LoadAsync(Guid spaceId, CancellationToken cancellationToken)
+    {
+        var space = await _db.ParkingSpaces
             .Include(s => s.SupportedVehicleTypes)
             .FirstOrDefaultAsync(s => s.Id == spaceId, cancellationToken)
-        ?? throw new DomainException($"Parking space {spaceId} does not exist.");
+            ?? throw new DomainException($"Parking space {spaceId} does not exist.");
+
+        _currentUser.RequireSelfOrAdmin(space.HostId);
+        return space;
+    }
 }

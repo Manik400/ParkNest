@@ -20,6 +20,7 @@ public sealed class BookingService : IBookingService
     private readonly IWalletService _wallets;
     private readonly IPricingService _pricing;
     private readonly IClock _clock;
+    private readonly ICurrentUser _currentUser;
     private readonly PlatformOptions _options;
 
     public BookingService(
@@ -27,17 +28,23 @@ public sealed class BookingService : IBookingService
         IWalletService wallets,
         IPricingService pricing,
         IClock clock,
+        ICurrentUser currentUser,
         IOptions<PlatformOptions> options)
     {
         _db = db;
         _wallets = wallets;
         _pricing = pricing;
         _clock = clock;
+        _currentUser = currentUser;
         _options = options.Value;
     }
 
     public async Task<Booking> CreateBookingAsync(CreateBookingRequest request, CancellationToken cancellationToken = default)
     {
+        // The renter is whoever holds the token. There is no way for a caller to book on someone
+        // else's credits, because there is no input that says who the renter is.
+        var renterId = _currentUser.RequireUserId();
+
         var existing = await _db.LedgerTransactions
             .FirstOrDefaultAsync(t => t.IdempotencyKey == HoldKey(request.IdempotencyKey), cancellationToken);
         if (existing?.BookingId is { } alreadyBookedId)
@@ -59,7 +66,7 @@ public sealed class BookingService : IBookingService
         var vehicle = await _db.Vehicles.FirstOrDefaultAsync(v => v.Id == request.VehicleId, cancellationToken)
                       ?? throw new DomainException($"Vehicle {request.VehicleId} does not exist.");
 
-        if (vehicle.UserId != request.RenterId)
+        if (vehicle.UserId != renterId)
         {
             throw new DomainException("That vehicle belongs to a different user.");
         }
@@ -78,7 +85,7 @@ public sealed class BookingService : IBookingService
         var booking = new Booking
         {
             ParkingSpaceId = space.Id,
-            RenterId = request.RenterId,
+            RenterId = renterId,
             HostId = space.HostId,
             VehicleId = vehicle.Id,
             StartTime = request.StartTime,
@@ -93,7 +100,7 @@ public sealed class BookingService : IBookingService
 
         // Reserve first: if the renter is short, no booking should exist at all (PRD §5.1.1).
         await _wallets.PlaceHoldAsync(
-            request.RenterId,
+            renterId,
             booking.Id,
             quote.Amount,
             HoldKey(request.IdempotencyKey),
@@ -107,7 +114,7 @@ public sealed class BookingService : IBookingService
 
     public async Task<Booking> StartSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CancellationToken cancellationToken = default)
     {
-        var booking = await GetBookingAsync(bookingId, cancellationToken);
+        var booking = await GetOwnedBookingAsync(bookingId, cancellationToken);
 
         if (booking.Status != BookingStatus.Held)
         {
@@ -124,7 +131,7 @@ public sealed class BookingService : IBookingService
 
     public async Task<SessionOutcome> EndSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CancellationToken cancellationToken = default)
     {
-        var booking = await GetBookingAsync(bookingId, cancellationToken);
+        var booking = await GetOwnedBookingAsync(bookingId, cancellationToken);
 
         if (booking.Status != BookingStatus.Active)
         {
@@ -212,7 +219,7 @@ public sealed class BookingService : IBookingService
 
     public async Task<Booking> CancelBookingAsync(Guid bookingId, CancellationToken cancellationToken = default)
     {
-        var booking = await GetBookingAsync(bookingId, cancellationToken);
+        var booking = await GetOwnedBookingAsync(bookingId, cancellationToken);
 
         if (booking.Status != BookingStatus.Held)
         {
@@ -231,6 +238,18 @@ public sealed class BookingService : IBookingService
     private async Task<Booking> GetBookingAsync(Guid bookingId, CancellationToken cancellationToken) =>
         await _db.Bookings.FirstOrDefaultAsync(b => b.Id == bookingId, cancellationToken)
         ?? throw new DomainException($"Booking {bookingId} does not exist.");
+
+    /// <summary>
+    /// A session may only be driven by its own renter (or an admin resolving a dispute). Without
+    /// this, any authenticated user could end a stranger's session — or start one — by guessing
+    /// or scraping a booking id, and the settlement would hit the wrong person's wallet.
+    /// </summary>
+    private async Task<Booking> GetOwnedBookingAsync(Guid bookingId, CancellationToken cancellationToken)
+    {
+        var booking = await GetBookingAsync(bookingId, cancellationToken);
+        _currentUser.RequireSelfOrAdmin(booking.RenterId);
+        return booking;
+    }
 
     private async Task EnsureNoOverlapAsync(Guid spaceId, DateTimeOffset start, DateTimeOffset end, CancellationToken cancellationToken)
     {

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ParkNest.Application.Listings;
 using ParkNest.Domain.Common;
@@ -44,6 +45,8 @@ public sealed class ListingsController : ControllerBase
         return Ok(ListingResponse.From(space));
     }
 
+    /// <summary>Public search — a renter needs to see what's available before signing up.</summary>
+    [AllowAnonymous]
     [HttpGet("nearby")]
     public async Task<ActionResult<IReadOnlyList<NearbySpace>>> Nearby(
         [FromQuery] double lat,
