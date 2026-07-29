@@ -74,6 +74,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b. Every migration must carry its Designer metadata.
+#
+# EF associates a migration with its DbContext through the [DbContext] attribute, which lives in
+# the generated .Designer.cs. A hand-written migration without one is silently *skipped* by
+# `database update` — it looks committed and reviewed, and never runs. That exact bug shipped the
+# PostGIS column and all the ledger CHECK constraints into a state where they existed in the repo
+# but in no database.
+# ---------------------------------------------------------------------------
+orphans=""
+for migration in src/ParkNest.Infrastructure/Persistence/Migrations/*.cs; do
+    case "$migration" in
+        *.Designer.cs|*ModelSnapshot.cs) continue ;;
+    esac
+    [[ -e "$migration" ]] || continue
+
+    designer="${migration%.cs}.Designer.cs"
+    if [[ ! -f "$designer" ]]; then
+        orphans+="  ${migration}"$'\n'
+    fi
+done
+
+if [[ -n "$orphans" ]]; then
+    fail "a migration has no .Designer.cs and will be silently skipped by EF"
+    echo "$orphans"
+    echo "  Scaffold migrations with 'dotnet ef migrations add', then edit the generated Up/Down."
+    echo "  Never hand-write the migration file — without the Designer's [DbContext] attribute EF"
+    echo "  cannot see it, and 'database update' will report success while applying nothing."
+else
+    pass "every migration has its Designer metadata"
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Every new wallet-mutating method takes an idempotency key.
 #
 # PRD §15 requires idempotency on wallet mutations: a renter's phone losing signal mid-checkout
