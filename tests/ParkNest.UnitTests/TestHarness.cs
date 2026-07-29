@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Auth;
 using ParkNest.Application.Bookings;
 using ParkNest.Application.Listings;
 using ParkNest.Application.Options;
@@ -58,23 +59,44 @@ public sealed class TestHarness : IDisposable
         Db.Database.EnsureCreated();
 
         Clock = new TestClock(Origin);
+        CurrentUser = new TestCurrentUser();
         var wrapped = Microsoft.Extensions.Options.Options.Create(Options);
 
         Ledger = new LedgerService(Db, Clock);
         Wallets = new WalletService(Db, Ledger, Clock, wrapped);
         PricingService = new PricingService(Db, wrapped);
-        Listings = new ListingService(Db, PricingService, Clock);
-        Bookings = new BookingService(Db, Wallets, PricingService, Clock, wrapped);
+        Listings = new ListingService(Db, PricingService, Clock, CurrentUser);
+        Bookings = new BookingService(Db, Wallets, PricingService, Clock, CurrentUser, wrapped);
+
+        AuthOptions = new AuthOptions
+        {
+            SigningKey = "test-signing-key-that-is-long-enough-32",
+            OtpPepper = "test-otp-pepper-value",
+            OtpLifetimeMinutes = 5,
+            OtpMaxAttempts = 3
+        };
+
+        OtpSender = new RecordingOtpSender();
+        Auth = new AuthService(
+            Db,
+            new FakeTokenService(),
+            OtpSender,
+            Clock,
+            Microsoft.Extensions.Options.Options.Create(AuthOptions));
     }
 
     public PlatformOptions Options { get; }
     public ParkNestDbContext Db { get; }
     public TestClock Clock { get; }
+    public TestCurrentUser CurrentUser { get; }
     public ILedgerService Ledger { get; }
     public IWalletService Wallets { get; }
     public IPricingService PricingService { get; }
     public IListingService Listings { get; }
     public IBookingService Bookings { get; }
+    public IAuthService Auth { get; }
+    public AuthOptions AuthOptions { get; }
+    public RecordingOtpSender OtpSender { get; }
 
     public async Task<User> AddUserAsync(UserRole role, KycStatus kyc = KycStatus.NotStarted)
     {
@@ -88,6 +110,7 @@ public sealed class TestHarness : IDisposable
 
         Db.Users.Add(user);
         await Db.SaveChangesAsync();
+        CurrentUser.SignIn(user.Id, role);
         return user;
     }
 
@@ -134,8 +157,10 @@ public sealed class TestHarness : IDisposable
         VehicleType type = VehicleType.FourWheeler,
         string city = "Bengaluru")
     {
+        CurrentUser.SignIn(hostId, UserRole.Host);
+
         var space = await Listings.CreateDraftAsync(new CreateListingRequest(
-            hostId, "Driveway", "12 Main Rd", city, null, 12.97, 77.59, pricePerHour, new[] { type }));
+            "Driveway", "12 Main Rd", city, null, 12.97, 77.59, pricePerHour, new[] { type }));
 
         return await Listings.PublishAsync(space.Id);
     }

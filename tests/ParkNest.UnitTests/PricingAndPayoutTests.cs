@@ -26,7 +26,7 @@ public sealed class PricingAndPayoutTests : IDisposable
         await _h.AddBandAsync(min: 20m, max: 120m);
 
         var draft = await _h.Listings.CreateDraftAsync(new CreateListingRequest(
-            host.Id, "Driveway", "12 Main Rd", "Bengaluru", null, 12.97, 77.59, 500m,
+            "Driveway", "12 Main Rd", "Bengaluru", null, 12.97, 77.59, 500m,
             new[] { VehicleType.FourWheeler }));
 
         var act = () => _h.Listings.PublishAsync(draft.Id);
@@ -117,6 +117,10 @@ public sealed class PricingAndPayoutTests : IDisposable
 
         var settlement = await _h.Wallets.SettleAsync(new ParkNest.Application.Wallets.SettlementRequest(
             bookingId, renter.Id, hostId, grossCredits, $"settle:{bookingId}"));
+
+        // AddUserAsync signed the throwaway renter in; put the host back so the caller's
+        // subsequent cash-out runs as the host.
+        _h.CurrentUser.SignIn(hostId, UserRole.Host);
 
         return settlement.HostCredited;
     }

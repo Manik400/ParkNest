@@ -15,11 +15,13 @@ public sealed class AdminPricingController : ControllerBase
 {
     private readonly IParkNestDbContext _db;
     private readonly IClock _clock;
+    private readonly ICurrentUser _currentUser;
 
-    public AdminPricingController(IParkNestDbContext db, IClock clock)
+    public AdminPricingController(IParkNestDbContext db, IClock clock, ICurrentUser currentUser)
     {
         _db = db;
         _clock = clock;
+        _currentUser = currentUser;
     }
 
     [HttpGet]
@@ -27,6 +29,8 @@ public sealed class AdminPricingController : ControllerBase
         [FromQuery] string? city,
         CancellationToken cancellationToken)
     {
+        _currentUser.RequireAdmin();
+
         var query = _db.CityPricingConfigs.AsQueryable();
         if (!string.IsNullOrWhiteSpace(city))
         {
@@ -41,6 +45,8 @@ public sealed class AdminPricingController : ControllerBase
         [FromBody] UpsertBandRequest request,
         CancellationToken cancellationToken)
     {
+        _currentUser.RequireAdmin();
+
         if (request.MinPricePerHour > request.MaxPricePerHour)
         {
             throw new DomainException("Minimum price cannot exceed maximum price.");
