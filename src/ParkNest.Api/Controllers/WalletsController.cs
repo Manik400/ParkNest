@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Queries;
 using ParkNest.Application.Wallets;
 
 namespace ParkNest.Api.Controllers;
@@ -11,13 +12,27 @@ public sealed class WalletsController : ControllerBase
     private readonly IWalletService _wallets;
     private readonly ILedgerService _ledger;
     private readonly ICurrentUser _currentUser;
+    private readonly IParkNestQueries _queries;
 
-    public WalletsController(IWalletService wallets, ILedgerService ledger, ICurrentUser currentUser)
+    public WalletsController(
+        IWalletService wallets,
+        ILedgerService ledger,
+        ICurrentUser currentUser,
+        IParkNestQueries queries)
     {
         _wallets = wallets;
         _ledger = ledger;
         _currentUser = currentUser;
+        _queries = queries;
     }
+
+    /// <summary>The caller's credit history — the receipt trail behind their balance.</summary>
+    [HttpGet("me/transactions")]
+    public async Task<ActionResult<IReadOnlyList<LedgerEntrySummary>>> MyTransactions(
+        [FromQuery] int limit = 50,
+        [FromQuery] int offset = 0,
+        CancellationToken cancellationToken = default) =>
+        Ok(await _queries.GetMyLedgerAsync(limit, offset, cancellationToken));
 
     /// <summary>The caller's own wallet.</summary>
     [HttpGet("me")]

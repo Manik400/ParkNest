@@ -25,9 +25,11 @@ public sealed class PricingAndPayoutTests : IDisposable
         var host = await _h.AddUserAsync(UserRole.Host);
         await _h.AddBandAsync(min: 20m, max: 120m);
 
+        // Availability is present so publishing fails on the price alone, which is what this covers.
         var draft = await _h.Listings.CreateDraftAsync(new CreateListingRequest(
             "Driveway", "12 Main Rd", "Bengaluru", null, 12.97, 77.59, 500m,
-            new[] { VehicleType.FourWheeler }));
+            new[] { VehicleType.FourWheeler },
+            new[] { new AvailabilityWindowRequest(DayOfWeek.Tuesday, new TimeOnly(9, 0), new TimeOnly(17, 0)) }));
 
         var act = () => _h.Listings.PublishAsync(draft.Id);
 

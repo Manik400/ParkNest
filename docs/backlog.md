@@ -19,6 +19,9 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [x] CI: build/test, migrations applied to real PostGIS, schema invariants verified
 - [x] Conditional ledger guard on money paths + on-demand `@claude` PR review
 - [x] Phone + OTP authentication, ownership and role checks
+- [x] Availability windows + blackouts enforced at booking, per-space time zone
+- [x] Read endpoints: my bookings, hosting bookings, booking detail with ledger trail,
+      my listings, listing detail, wallet transaction history
 
 ### Next up
 - [x] **Auth & identity.** Phone + OTP login issuing JWTs; services take the acting user from the
@@ -33,8 +36,8 @@ Phases follow PRD §18. Items are ordered within each phase.
       credits" hole, but it still is not driven by a verified payment. See
       [adr/0004](adr/0004-credits-are-not-a-wallet.md).
 - [ ] Payout failure handling: compensating `Refund` transaction when the aggregator rejects
-- [ ] Availability enforcement — `AvailabilityWindow` and `AvailabilityBlackout` are modelled and
-      persisted but the booking path does not check them yet
+- [x] **Availability enforcement.** Windows and blackouts are now checked at booking time, in the
+      space's own IANA time zone. Overnight windows and 24/7 spaces are handled.
 - [ ] Integration test against a real PostGIS container, covering geo-search (currently untested —
       see [adr/0003](adr/0003-geo-search-without-nts.md))
 - [ ] Admin dispute console endpoints + resolution posting a compensating transaction
@@ -77,5 +80,5 @@ Phases follow PRD §18. Items are ordered within each phase.
   renter still has nowhere to park. Needs a product decision, not just code.
 - **Cancellation policy.** Cancelling returns the full hold with no window or fee, so a host can
   be left with a dead slot at zero compensation.
-- **Timezones.** Availability windows use `TimeOnly` in the space's local time, but no timezone is
-  stored on the space. Single-city hides this; multi-city does not.
+- **Cancellation window.** Still no fee or cut-off, so a host can lose a slot at zero
+  compensation minutes before it starts.

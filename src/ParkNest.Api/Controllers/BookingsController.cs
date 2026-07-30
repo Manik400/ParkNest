@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using ParkNest.Application.Bookings;
+using ParkNest.Application.Queries;
 using ParkNest.Domain.Common;
 
 namespace ParkNest.Api.Controllers;
@@ -9,8 +10,36 @@ namespace ParkNest.Api.Controllers;
 public sealed class BookingsController : ControllerBase
 {
     private readonly IBookingService _bookings;
+    private readonly IParkNestQueries _queries;
 
-    public BookingsController(IBookingService bookings) => _bookings = bookings;
+    public BookingsController(IBookingService bookings, IParkNestQueries queries)
+    {
+        _bookings = bookings;
+        _queries = queries;
+    }
+
+    /// <summary>The caller's own bookings, newest first.</summary>
+    [HttpGet("me")]
+    public async Task<ActionResult<IReadOnlyList<BookingSummary>>> Mine(
+        [FromQuery] BookingStatus? status,
+        [FromQuery] int limit = 50,
+        [FromQuery] int offset = 0,
+        CancellationToken cancellationToken = default) =>
+        Ok(await _queries.GetMyBookingsAsync(new BookingFilter(status, limit, offset), cancellationToken));
+
+    /// <summary>Bookings taken against spaces the caller hosts.</summary>
+    [HttpGet("hosting")]
+    public async Task<ActionResult<IReadOnlyList<BookingSummary>>> Hosting(
+        [FromQuery] BookingStatus? status,
+        [FromQuery] int limit = 50,
+        [FromQuery] int offset = 0,
+        CancellationToken cancellationToken = default) =>
+        Ok(await _queries.GetHostingBookingsAsync(new BookingFilter(status, limit, offset), cancellationToken));
+
+    /// <summary>Full detail including the ledger entries behind the settlement.</summary>
+    [HttpGet("{bookingId:guid}")]
+    public async Task<ActionResult<BookingDetail>> Detail(Guid bookingId, CancellationToken cancellationToken) =>
+        Ok(await _queries.GetBookingAsync(bookingId, cancellationToken));
 
     /// <summary>Reserves credits and creates the booking. 402 if the renter is short.</summary>
     [HttpPost]

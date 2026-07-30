@@ -26,7 +26,16 @@ public sealed record CreateListingRequest(
     double Latitude,
     double Longitude,
     decimal PricePerHour,
-    IReadOnlyList<VehicleType> SupportedVehicleTypes);
+    IReadOnlyList<VehicleType> SupportedVehicleTypes,
+    IReadOnlyList<AvailabilityWindowRequest>? AvailabilityWindows = null,
+    string TimeZoneId = "Asia/Kolkata");
+
+/// <param name="EndTime">
+/// Earlier than <paramref name="StartTime"/> means the window runs overnight (22:00–06:00).
+/// Equal to it means a full 24 hours, which is how a 24/7 basement or society lot is expressed —
+/// a zero-length window is represented by having no window at all.
+/// </param>
+public sealed record AvailabilityWindowRequest(DayOfWeek DayOfWeek, TimeOnly StartTime, TimeOnly EndTime);
 
 public sealed class ListingService : IListingService
 {
@@ -70,9 +79,21 @@ public sealed class ListingService : IListingService
             Latitude = request.Latitude,
             Longitude = request.Longitude,
             PricePerHour = Money.Round(request.PricePerHour),
+            TimeZoneId = request.TimeZoneId,
             Status = SpaceStatus.Draft,
             CreatedAt = _clock.UtcNow
         };
+
+        foreach (var window in request.AvailabilityWindows ?? Array.Empty<AvailabilityWindowRequest>())
+        {
+            space.AvailabilityWindows.Add(new AvailabilityWindow
+            {
+                ParkingSpaceId = space.Id,
+                DayOfWeek = window.DayOfWeek,
+                StartTime = window.StartTime,
+                EndTime = window.EndTime
+            });
+        }
 
         foreach (var vehicleType in request.SupportedVehicleTypes.Distinct())
         {
@@ -92,6 +113,13 @@ public sealed class ListingService : IListingService
     public async Task<ParkingSpace> PublishAsync(Guid spaceId, CancellationToken cancellationToken = default)
     {
         var space = await LoadAsync(spaceId, cancellationToken);
+
+        // A listing with no hours can never be booked, so publishing it would just be a dead
+        // pin on the map for renters to tap.
+        if (space.AvailabilityWindows.Count == 0)
+        {
+            throw new DomainException("Set at least one availability window before publishing.");
+        }
 
         // Every vehicle type the space accepts has its own band; the price must clear all of them.
         foreach (var support in space.SupportedVehicleTypes)
@@ -128,6 +156,7 @@ public sealed class ListingService : IListingService
     {
         var space = await _db.ParkingSpaces
             .Include(s => s.SupportedVehicleTypes)
+            .Include(s => s.AvailabilityWindows)
             .FirstOrDefaultAsync(s => s.Id == spaceId, cancellationToken)
             ?? throw new DomainException($"Parking space {spaceId} does not exist.");
 

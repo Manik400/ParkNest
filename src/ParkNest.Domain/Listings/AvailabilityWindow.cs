@@ -11,6 +11,11 @@ public class AvailabilityWindow
 
     public DayOfWeek DayOfWeek { get; set; }
     public TimeOnly StartTime { get; set; }
+
+    /// <summary>
+    /// Earlier than <see cref="StartTime"/> means the window runs past midnight; equal to it means
+    /// a full 24 hours. See <see cref="AvailabilityCalculator"/>.
+    /// </summary>
     public TimeOnly EndTime { get; set; }
 
     public bool Covers(DayOfWeek day, TimeOnly from, TimeOnly to) =>

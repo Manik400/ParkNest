@@ -151,16 +151,29 @@ public sealed class TestHarness : IDisposable
         return band;
     }
 
+    /// <summary>UTC keeps wall-clock reasoning out of tests that are not about time zones.</summary>
+    public const string TimeZone = "UTC";
+
     public async Task<ParkingSpace> AddPublishedSpaceAsync(
         Guid hostId,
         decimal pricePerHour = 60m,
         VehicleType type = VehicleType.FourWheeler,
-        string city = "Bengaluru")
+        string city = "Bengaluru",
+        IReadOnlyList<AvailabilityWindowRequest>? availabilityWindows = null)
     {
         CurrentUser.SignIn(hostId, UserRole.Host);
 
+        // Open around the clock every day unless a test says otherwise, so availability does not
+        // become an incidental variable in tests that are really about money or booking state.
+        // Equal start and end means a full 24 hours, so these merge into one continuous interval
+        // with no gap at midnight.
+        var windows = availabilityWindows ?? Enum.GetValues<DayOfWeek>()
+            .Select(d => new AvailabilityWindowRequest(d, new TimeOnly(0, 0), new TimeOnly(0, 0)))
+            .ToArray();
+
         var space = await Listings.CreateDraftAsync(new CreateListingRequest(
-            "Driveway", "12 Main Rd", city, null, 12.97, 77.59, pricePerHour, new[] { type }));
+            "Driveway", "12 Main Rd", city, null, 12.97, 77.59, pricePerHour, new[] { type },
+            windows, TimeZone));
 
         return await Listings.PublishAsync(space.Id);
     }

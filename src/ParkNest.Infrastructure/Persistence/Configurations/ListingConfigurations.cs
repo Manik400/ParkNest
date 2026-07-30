@@ -17,6 +17,13 @@ public sealed class ParkingSpaceConfiguration : IEntityTypeConfiguration<Parking
         builder.Property(s => s.Zone).HasMaxLength(100);
         builder.Property(s => s.PricePerHour).HasPrecision(18, 2);
 
+        // Defaulted at the database so the backfill on existing rows lands on a real zone rather
+        // than an empty string, which would fail every availability check.
+        builder.Property(s => s.TimeZoneId)
+            .HasMaxLength(64)
+            .HasDefaultValue("Asia/Kolkata")
+            .IsRequired();
+
         builder.HasIndex(s => new { s.City, s.Status });
 
         // The PostGIS geography column and its GiST index are added by migration SQL and kept in
