@@ -2,7 +2,8 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    # Deliberately unfiltered: a PR stacked onto another feature branch needs the same
+    # checks as one targeting main, and a branch filter silently skips them.
   push:
     branches: [main]
 
@@ -50,6 +51,29 @@ jobs:
           name: test-results
           path: ${{ github.workspace }}/TestResults
           retention-days: 14
+
+  admin-web:
+    name: Admin web builds
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: clients/admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: clients/admin/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npx ng build --configuration production
 
   migrations-apply:
     name: Migrations apply to a real PostGIS database
