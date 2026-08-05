@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<Auth.IAuthService, Auth.AuthService>();
         services.AddScoped<Queries.IParkNestQueries, Queries.ParkNestQueries>();
         services.AddScoped<Vehicles.IVehicleService, Vehicles.VehicleService>();
+        services.AddScoped<Payments.IPaymentService, Payments.PaymentService>();
 
         return services;
     }

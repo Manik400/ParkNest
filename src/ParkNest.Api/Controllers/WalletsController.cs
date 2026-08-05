@@ -52,11 +52,10 @@ public sealed class WalletsController : ControllerBase
     }
 
     /// <summary>
-    /// Credits a wallet against real money received.
-    ///
-    /// Admin-gated deliberately. This must ultimately be driven by the payment aggregator's
-    /// webhook after a verified payment — a caller-invokable recharge mints credits from nothing.
-    /// Restricting it to admins closes that hole until the webhook exists (see ADR 0004).
+    /// Manual credit adjustment. Admin only, and no longer the way users buy credits — that runs
+    /// through <c>POST /api/payments/orders</c> and only completes on a signature-verified webhook
+    /// (ADR 0004). What remains here is the support tool: refunding a botched session, seeding a
+    /// test account, settling a dispute in the user's favour.
     /// </summary>
     [HttpPost("{userId:guid}/recharge")]
     public async Task<ActionResult<WalletResponse>> Recharge(

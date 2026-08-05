@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using ParkNest.Domain.Bookings;
 using ParkNest.Domain.Disputes;
 using ParkNest.Domain.Listings;
+using ParkNest.Domain.Payments;
 using ParkNest.Domain.Payouts;
 using ParkNest.Domain.Pricing;
 using ParkNest.Domain.Ratings;
@@ -29,6 +30,7 @@ public interface IParkNestDbContext
     DbSet<LedgerEntry> LedgerEntries { get; }
     DbSet<CityPricingConfig> CityPricingConfigs { get; }
     DbSet<Payout> Payouts { get; }
+    DbSet<PaymentOrder> PaymentOrders { get; }
     DbSet<Dispute> Disputes { get; }
     DbSet<Rating> Ratings { get; }
 

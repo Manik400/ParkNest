@@ -7,7 +7,9 @@ using ParkNest.Application.Abstractions;
 using ParkNest.Application.Auth;
 using ParkNest.Application.Listings;
 using ParkNest.Application.Options;
+using ParkNest.Application.Payments;
 using ParkNest.Infrastructure.Auth;
+using ParkNest.Infrastructure.Payments;
 using ParkNest.Infrastructure.Persistence;
 
 namespace ParkNest.Infrastructure;
@@ -22,6 +24,7 @@ public static class DependencyInjection
         services.Configure<PlatformOptions>(configuration.GetSection(PlatformOptions.SectionName));
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<SmsOptions>(configuration.GetSection(SmsOptions.SectionName));
+        services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
 
         ValidateAuthOptions(configuration, environment);
 
@@ -37,6 +40,7 @@ public static class DependencyInjection
         services.AddScoped<ITokenService, JwtTokenService>();
 
         AddSms(services, configuration, environment);
+        AddPayments(services, configuration, environment);
 
         services.AddParkNestApplication();
 
@@ -64,6 +68,32 @@ public static class DependencyInjection
         }
 
         services.AddScoped<IOtpSender, LoggingOtpSender>();
+    }
+
+    /// <summary>
+    /// Payments are optional outside Production so the rest of the app can be developed without
+    /// merchant credentials; inside it, their absence is fatal.
+    /// </summary>
+    private static void AddPayments(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
+    {
+        var payments = configuration.GetSection(PaymentOptions.SectionName).Get<PaymentOptions>() ?? new PaymentOptions();
+
+        if (payments.IsConfigured)
+        {
+            services.AddHttpClient<IPaymentGateway, RazorpayPaymentGateway>();
+            return;
+        }
+
+        if (environment.IsProduction())
+        {
+            throw new InvalidOperationException(
+                "No payment gateway is configured. Set Payments:Provider=Razorpay with KeyId, KeySecret and WebhookSecret before deploying to Production.");
+        }
+
+        // A stand-in rather than nothing: leaving IPaymentGateway unregistered fails DI validation
+        // at startup and takes the entire API down, which is a far worse development experience
+        // than the payment endpoints returning a clear "not configured".
+        services.AddScoped<IPaymentGateway, UnconfiguredPaymentGateway>();
     }
 
     /// <summary>
