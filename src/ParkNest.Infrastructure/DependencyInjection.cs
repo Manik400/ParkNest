@@ -21,6 +21,7 @@ public static class DependencyInjection
     {
         services.Configure<PlatformOptions>(configuration.GetSection(PlatformOptions.SectionName));
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
+        services.Configure<SmsOptions>(configuration.GetSection(SmsOptions.SectionName));
 
         ValidateAuthOptions(configuration, environment);
 
@@ -35,19 +36,34 @@ public static class DependencyInjection
         // collaborators (token signing, OTP delivery) are wired here.
         services.AddScoped<ITokenService, JwtTokenService>();
 
-        if (environment.IsProduction())
-        {
-            // No real SMS gateway is implemented yet. Failing at startup is the correct behaviour:
-            // silently falling back to the dev sender would expose every login code.
-            throw new InvalidOperationException(
-                "No production IOtpSender is configured. Implement an SMS gateway before deploying to Production.");
-        }
-
-        services.AddScoped<IOtpSender, LoggingOtpSender>();
+        AddSms(services, configuration, environment);
 
         services.AddParkNestApplication();
 
         return services;
+    }
+
+    /// <summary>
+    /// Real SMS when configured; the logging stand-in otherwise. Production with neither is a
+    /// hard startup failure — falling back to a sender that prints codes would expose every login.
+    /// </summary>
+    private static void AddSms(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
+    {
+        var sms = configuration.GetSection(SmsOptions.SectionName).Get<SmsOptions>() ?? new SmsOptions();
+
+        if (sms.IsConfigured)
+        {
+            services.AddHttpClient<IOtpSender, Msg91OtpSender>();
+            return;
+        }
+
+        if (environment.IsProduction())
+        {
+            throw new InvalidOperationException(
+                "No SMS provider is configured. Set Sms:Provider=Msg91 with AuthKey and TemplateId before deploying to Production.");
+        }
+
+        services.AddScoped<IOtpSender, LoggingOtpSender>();
     }
 
     /// <summary>
