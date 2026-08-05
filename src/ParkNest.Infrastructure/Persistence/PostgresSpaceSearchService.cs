@@ -46,11 +46,21 @@ public sealed class PostgresSpaceSearchService : ISpaceSearchService
         await connection.OpenAsync(cancellationToken);
 
         await using var command = new NpgsqlCommand(sql, connection);
+
+        // Every parameter is explicitly typed. The optional filters are compared against NULL in
+        // the SQL, and Postgres cannot infer a type for an untyped NULL — it fails the whole
+        // statement with "could not determine data type of parameter".
         command.Parameters.Add(new NpgsqlParameter("origin", NpgsqlTypes.NpgsqlDbType.Unknown) { Value = origin });
-        command.Parameters.AddWithValue("radius", query.RadiusMetres);
-        command.Parameters.AddWithValue("vehicle_type", (object?)(query.VehicleType is null ? null : (int)query.VehicleType.Value) ?? DBNull.Value);
-        command.Parameters.AddWithValue("max_price", (object?)query.MaxPricePerHour ?? DBNull.Value);
-        command.Parameters.AddWithValue("limit", query.Limit);
+        command.Parameters.Add(new NpgsqlParameter("radius", NpgsqlTypes.NpgsqlDbType.Integer) { Value = query.RadiusMetres });
+        command.Parameters.Add(new NpgsqlParameter("vehicle_type", NpgsqlTypes.NpgsqlDbType.Integer)
+        {
+            Value = query.VehicleType is null ? DBNull.Value : (int)query.VehicleType.Value
+        });
+        command.Parameters.Add(new NpgsqlParameter("max_price", NpgsqlTypes.NpgsqlDbType.Numeric)
+        {
+            Value = query.MaxPricePerHour ?? (object)DBNull.Value
+        });
+        command.Parameters.Add(new NpgsqlParameter("limit", NpgsqlTypes.NpgsqlDbType.Integer) { Value = query.Limit });
 
         var results = new List<NearbySpace>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
