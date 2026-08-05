@@ -9,18 +9,22 @@ backlog are in [docs/](docs/README.md).
 
 ## Status
 
-Phase 0 backend scaffold. The credit ledger, pricing rules engine and booking lifecycle are
-implemented and tested; the Flutter and Angular clients are not started yet.
+Phase 0. The credit ledger, pricing rules engine, booking lifecycle, authentication and the credit
+purchase flow are implemented and tested, and the Angular admin console runs against them. The
+Flutter renter app is not started.
 
 | Area | State |
 |---|---|
-| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 26 tests green |
+| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 125 tests green |
 | Pricing rules engine (city bands, billing increments, overstay multiplier) | Implemented |
 | Booking lifecycle + Tier 1 app-confirmed detection | Implemented |
 | Listings + PostGIS geo-search | Implemented |
-| Auth / identity | Not started — endpoints are currently unauthenticated |
-| RabbitMQ, SignalR, payment aggregator | Not started (Phase 1) |
-| Flutter app, Angular admin | Not started |
+| Auth / identity | Phone + OTP → JWT; every endpoint authorised |
+| Availability windows and blackouts | Enforced at booking, per-space time zone |
+| Credit purchase (payments) | Built. Sandbox gateway runs locally with no account; Razorpay wired for real money |
+| Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, pricing bands |
+| RabbitMQ, SignalR | Not started (Phase 1) |
+| Flutter renter app | Not started |
 
 ## Layout
 
@@ -32,6 +36,8 @@ src/
   ParkNest.Api/             ASP.NET Core controllers and error mapping.
 tests/
   ParkNest.UnitTests/       Service-level tests against in-memory SQLite.
+clients/
+  admin/                    Angular 18 admin and host console.
 docs/                       Spec, ADRs, work log, backlog.
 ```
 
@@ -40,20 +46,69 @@ peeling one out later is a project split rather than a rewrite.
 
 ## Running it
 
+Two processes: the API and the Angular dev server. Postgres has to exist first; Docker is one way
+to get it, not a requirement — a local PostGIS-enabled Postgres works just as well, point
+`ConnectionStrings:ParkNest` at it.
+
 ```bash
-docker compose up -d                 # Postgres + PostGIS, Redis, RabbitMQ
+docker compose up -d                 # optional: Postgres + PostGIS (Redis and RabbitMQ are unused until Phase 1)
 dotnet tool restore                  # pins dotnet-ef 8.0.10
 dotnet dotnet-ef database update --project src/ParkNest.Infrastructure --startup-project src/ParkNest.Api
-dotnet run --project src/ParkNest.Api
+dotnet run --project src/ParkNest.Api --launch-profile https
 ```
+
+**Use the `https` profile.** It binds both `https://localhost:7139` and `http://localhost:5109`;
+the `http` profile binds only the latter, and the admin console is configured to call 7139
+(`clients/admin/src/environments/environment.ts`), so every request from the browser fails with
+nothing in the API log to explain it.
 
 Swagger is at `/swagger` in Development; `/health` is always available.
 
 ```bash
-dotnet test                          # 26 tests, no Docker required
+dotnet test                          # 125 tests, no Docker required
 ```
 
 Tests run on in-memory SQLite, so they need no container and finish in about a second.
+
+### Admin console
+
+```bash
+cd clients/admin
+npm install
+npm start                            # ng serve, http://localhost:4200
+```
+
+There is no proxy. The app calls the API cross-origin at the URL in
+`src/environments/environment.ts`, and the API allows `localhost:4200` via a CORS policy that is
+registered only outside Production — so `npm start` is the whole story, and the first request will
+fail unless you have accepted the API's self-signed certificate. Visit
+<https://localhost:7139/swagger> once and click through the browser warning.
+
+Needs the API running. Sign in with any phone number — outside Production the API returns the
+one-time code in the response and the login screen displays it, because no SMS gateway is wired
+yet. The first sign-in creates the account.
+
+To reach the pricing screen you need the admin role: add your number to `Auth:AdminPhones` in
+`src/ParkNest.Api/appsettings.json` before first sign-in.
+
+## Buying credits
+
+Development runs on the built-in **sandbox gateway** — no merchant account, no credentials, no
+network. Press **Add credits** on the wallet page and the browser goes to a local checkout sheet
+with *Pay* and *Simulate a declined payment*; either posts an HMAC-signed callback to the real
+webhook endpoint, which verifies it exactly as it would a live one. No money moves.
+
+```jsonc
+// src/ParkNest.Api/appsettings.json
+"Payments": { "Provider": "Sandbox" }   // local, free, refused in Production
+"Payments": { "Provider": "Razorpay", "KeyId": "…", "KeySecret": "…", "WebhookSecret": "…" }
+"Payments": { "Provider": "None" }      // payment endpoints report "not configured"
+```
+
+There is no open-source gateway that settles real funds — that needs a licensed PSP — so the
+sandbox reproduces the *protocol* rather than pretending to be one, and switching to Razorpay
+changes nothing but the edge of the system. See
+[docs/adr/0006-sandbox-payment-gateway.md](docs/adr/0006-sandbox-payment-gateway.md).
 
 ## Configuration
 
