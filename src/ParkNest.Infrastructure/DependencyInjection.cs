@@ -71,8 +71,12 @@ public static class DependencyInjection
     }
 
     /// <summary>
-    /// Payments are optional outside Production so the rest of the app can be developed without
-    /// merchant credentials; inside it, their absence is fatal.
+    /// Selects the payment gateway. Three providers, in descending order of trust: a real
+    /// aggregator, the in-process sandbox, and nothing at all.
+    ///
+    /// Production accepts only the first. The sandbox signs its own callbacks, so anyone who can
+    /// reach its checkout page can mint credits — that is exactly what makes it useful in
+    /// development and disqualifying anywhere else.
     /// </summary>
     private static void AddPayments(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
@@ -81,6 +85,22 @@ public static class DependencyInjection
         if (payments.IsConfigured)
         {
             services.AddHttpClient<IPaymentGateway, RazorpayPaymentGateway>();
+            return;
+        }
+
+        if (payments.IsSandbox)
+        {
+            if (environment.IsProduction())
+            {
+                throw new InvalidOperationException(
+                    "Payments:Provider=Sandbox is a development gateway that issues credits without taking money. Configure a real provider before deploying to Production.");
+            }
+
+            // Singleton, and it has to be: when no WebhookSecret is configured the sandbox
+            // generates a per-instance signing key, so a scoped registration would sign the
+            // checkout page with one key and verify the callback with another.
+            services.AddSingleton<SandboxPaymentGateway>();
+            services.AddSingleton<IPaymentGateway>(sp => sp.GetRequiredService<SandboxPaymentGateway>());
             return;
         }
 
