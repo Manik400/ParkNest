@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ParkNest.Application.Bookings;
 using ParkNest.Application.Queries;
@@ -40,6 +41,19 @@ public sealed class BookingsController : ControllerBase
     [HttpGet("{bookingId:guid}")]
     public async Task<ActionResult<BookingDetail>> Detail(Guid bookingId, CancellationToken cancellationToken) =>
         Ok(await _queries.GetBookingAsync(bookingId, cancellationToken));
+
+    /// <summary>
+    /// Prices a prospective booking without reserving anything, and says why it would be refused.
+    /// Anonymous so a visitor can see the cost before signing up.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("quote")]
+    public async Task<ActionResult<BookingQuote>> Quote(
+        [FromQuery] Guid spaceId,
+        [FromQuery] DateTimeOffset startTime,
+        [FromQuery] int durationMinutes,
+        CancellationToken cancellationToken) =>
+        Ok(await _bookings.QuoteAsync(spaceId, startTime, durationMinutes, cancellationToken));
 
     /// <summary>Reserves credits and creates the booking. 402 if the renter is short.</summary>
     [HttpPost]

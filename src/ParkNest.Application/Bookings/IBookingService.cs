@@ -5,6 +5,17 @@ namespace ParkNest.Application.Bookings;
 
 public interface IBookingService
 {
+    /// <summary>
+    /// Prices a prospective booking and reports whether it could actually be made, without
+    /// reserving anything. Lets the UI show the cost and the reason it would be refused before
+    /// the renter commits.
+    /// </summary>
+    Task<BookingQuote> QuoteAsync(
+        Guid parkingSpaceId,
+        DateTimeOffset startTime,
+        int durationMinutes,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Quotes the session, reserves the credits, and creates the booking in <c>Held</c>.</summary>
     Task<Booking> CreateBookingAsync(CreateBookingRequest request, CancellationToken cancellationToken = default);
 
@@ -31,6 +42,18 @@ public sealed record CreateBookingRequest(
     DateTimeOffset StartTime,
     int DurationMinutes,
     string IdempotencyKey);
+
+/// <param name="Unavailable">Why it cannot be booked, or null when it can.</param>
+public sealed record BookingQuote(
+    Guid ParkingSpaceId,
+    DateTimeOffset StartTime,
+    DateTimeOffset EndTime,
+    int BilledMinutes,
+    decimal RatePerHour,
+    decimal Amount,
+    decimal OverstayRatePerHour,
+    bool CanBook,
+    string? Unavailable);
 
 /// <param name="Shortfall">Credits owed that the renter could not cover; non-zero means a violation.</param>
 public sealed record SessionOutcome(

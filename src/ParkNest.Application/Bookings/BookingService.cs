@@ -39,6 +39,47 @@ public sealed class BookingService : IBookingService
         _options = options.Value;
     }
 
+    public async Task<BookingQuote> QuoteAsync(
+        Guid parkingSpaceId,
+        DateTimeOffset startTime,
+        int durationMinutes,
+        CancellationToken cancellationToken = default)
+    {
+        var space = await LoadBookableSpaceAsync(parkingSpaceId, cancellationToken);
+
+        // Price against the first vehicle type the space accepts; bands rarely differ by type
+        // within one space, and the renter's actual vehicle is validated at booking time.
+        var vehicleType = space.SupportedVehicleTypes.Select(v => v.VehicleType).First();
+        var band = await _pricing.GetBandAsync(space.City, space.Zone, vehicleType, cancellationToken);
+        var quote = _pricing.QuoteBooking(space.PricePerHour, durationMinutes);
+
+        var end = startTime.AddMinutes(quote.BilledMinutes);
+        var overstayRate = Money.Round(space.PricePerHour * band.OverstayMultiplier);
+
+        string? unavailable = null;
+        try
+        {
+            if (startTime < _clock.UtcNow.AddMinutes(-BackdatingToleranceMinutes))
+            {
+                throw new DomainException("A booking cannot start in the past.");
+            }
+
+            await EnsureWithinAvailabilityAsync(space, startTime, end, cancellationToken);
+            await EnsureNoOverlapAsync(space.Id, startTime, end, cancellationToken);
+        }
+        catch (DomainException ex)
+        {
+            // A quote reports the obstacle rather than throwing: the caller is asking "could I?",
+            // and the reason is the useful part of the answer.
+            unavailable = ex.Message;
+        }
+
+        return new BookingQuote(
+            space.Id, startTime, end, quote.BilledMinutes,
+            space.PricePerHour, quote.Amount, overstayRate,
+            unavailable is null, unavailable);
+    }
+
     public async Task<Booking> CreateBookingAsync(CreateBookingRequest request, CancellationToken cancellationToken = default)
     {
         // The renter is whoever holds the token. There is no way for a caller to book on someone
@@ -52,16 +93,7 @@ public sealed class BookingService : IBookingService
             return await GetBookingAsync(alreadyBookedId, cancellationToken);
         }
 
-        var space = await _db.ParkingSpaces
-            .Include(s => s.SupportedVehicleTypes)
-            .Include(s => s.AvailabilityWindows)
-            .FirstOrDefaultAsync(s => s.Id == request.ParkingSpaceId, cancellationToken)
-            ?? throw new DomainException($"Parking space {request.ParkingSpaceId} does not exist.");
-
-        if (space.Status != SpaceStatus.Published)
-        {
-            throw new DomainException("This space is not currently accepting bookings.");
-        }
+        var space = await LoadBookableSpaceAsync(request.ParkingSpaceId, cancellationToken);
 
         var vehicle = await _db.Vehicles.FirstOrDefaultAsync(v => v.Id == request.VehicleId, cancellationToken)
                       ?? throw new DomainException($"Vehicle {request.VehicleId} does not exist.");
@@ -256,6 +288,31 @@ public sealed class BookingService : IBookingService
         var booking = await GetBookingAsync(bookingId, cancellationToken);
         _currentUser.RequireSelfOrAdmin(booking.RenterId);
         return booking;
+    }
+
+    /// <summary>
+    /// Loads a space with everything the booking rules need. Shared by quoting and booking so the
+    /// two can never disagree about what is bookable.
+    /// </summary>
+    private async Task<ParkingSpace> LoadBookableSpaceAsync(Guid spaceId, CancellationToken cancellationToken)
+    {
+        var space = await _db.ParkingSpaces
+            .Include(s => s.SupportedVehicleTypes)
+            .Include(s => s.AvailabilityWindows)
+            .FirstOrDefaultAsync(s => s.Id == spaceId, cancellationToken)
+            ?? throw new DomainException($"Parking space {spaceId} does not exist.");
+
+        if (space.Status != SpaceStatus.Published)
+        {
+            throw new DomainException("This space is not currently accepting bookings.");
+        }
+
+        if (space.SupportedVehicleTypes.Count == 0)
+        {
+            throw new DomainException("This space does not accept any vehicle type.");
+        }
+
+        return space;
     }
 
     /// <summary>
