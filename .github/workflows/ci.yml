@@ -38,9 +38,11 @@ jobs:
         run: dotnet build --no-restore -c Release
 
       # The suite runs on in-memory SQLite, so no database service container is needed.
+      # Only the unit project: the integration tests need a PostGIS container and run in the
+      # migrations job, which already has one.
       - name: Test
         run: >
-          dotnet test --no-build -c Release
+          dotnet test tests/ParkNest.UnitTests --no-build -c Release
           --logger "trx;LogFileName=test-results.trx"
           --results-directory ${{ github.workspace }}/TestResults
 
@@ -118,3 +120,23 @@ jobs:
         env:
           PGPASSWORD: parknest
         run: bash .github/scripts/verify-schema.sh
+
+      # The geo-search path — the generated geog column, the GiST index, the raw SQL — is
+      # invisible to the SQLite suite, so this is the only job that exercises it. Without the
+      # connection variable these tests skip, which is the right behaviour locally and would be
+      # silent rot here; the variable is set, so they run.
+      - name: Geo-search integration tests
+        env:
+          PARKNEST_TEST_CONNECTION: Host=localhost;Port=5432;Database=parknest;Username=parknest;Password=parknest
+        run: >
+          dotnet test tests/ParkNest.IntegrationTests
+          --logger "trx;LogFileName=integration-results.trx"
+          --results-directory ${{ github.workspace }}/TestResults
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: ${{ github.workspace }}/TestResults
+          retention-days: 14
