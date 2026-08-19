@@ -59,12 +59,16 @@ Phases follow PRD §18. Items are ordered within each phase.
       map are the notable absences — the search screen takes coordinates for now.
 - [x] Angular admin panel: pricing bands, disputes and payouts all present
 
+- [x] Device location and a map in the app. Search opens on the device's position and falls back
+      to the city centre, naming which of GPS-off / denied / no-fix happened. OpenStreetMap tiles
+      through flutter_map, price-as-pin.
+- [x] Listing a space from the phone, pin placed on the same map. Publish stays a separate call,
+      so a price outside the city band leaves a draft to fix rather than a lost form.
+
 ### What is actually left in Phase 0
 
-- Device location and a map in the Flutter app, so finding a space does not mean typing
-  coordinates. Wants the permission flow first.
-- Listing a space from the phone. Hosting is read-only in the app; creating a listing needs a map
-  to place the pin and photo upload, and is done in the web console.
+- Photo upload for a listing. There is no blob store and no `/api/listings/{id}/photos` endpoint;
+  `SpacePhoto` exists as a table only. Wants a storage decision before any code.
 - Razorpay against the live API, which needs credentials and an escrow arrangement that does not
   exist yet. Neither is a code problem.
 - The two open questions below, which are product decisions and cannot be resolved by writing

@@ -11,9 +11,8 @@ backlog are in [docs/](docs/README.md).
 
 Phase 0. The credit ledger, pricing rules engine, booking lifecycle, authentication, the credit
 purchase flow, disputes and payouts are implemented and tested; the Angular admin console and the
-Flutter app both run against them. What is left is device location and a map in the app, and
-Razorpay against the live API — which needs credentials and an escrow arrangement rather than
-more code.
+Flutter app both run against them. What is left is photo upload for listings, and Razorpay against
+the live API — which needs credentials and an escrow arrangement rather than more code.
 
 | Area | State |
 |---|---|
@@ -30,7 +29,7 @@ more code.
 | Payouts | Cash-out, plus recording the transfer paid or failed — failure refunds the host |
 | Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, disputes, payouts, pricing bands |
 | RabbitMQ, SignalR | Not started (Phase 1) |
-| Flutter renter + host app | Sign-in, search, quote, book, session, wallet, vehicles, hosting, disputes |
+| Flutter renter + host app | Sign-in, map search from your location, quote, book, session, wallet, vehicles, listing a space, disputes |
 
 ## Layout
 
@@ -139,8 +138,12 @@ flutter run --dart-define=PARKNEST_API_BASE_URL=http://192.168.1.20:5109
 Sign in with any number; outside Production the code comes back in the response and the screen
 fills it in.
 
+Finding parking asks for location, and works without it — permission refused just means results
+come from the city centre instead, with a banner saying so. Maps are OpenStreetMap tiles, so no
+key or billing account is needed.
+
 ```bash
-flutter test                         # 15 tests
+flutter test                         # 18 tests
 flutter analyze
 ```
 
