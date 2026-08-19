@@ -1,0 +1,44 @@
+name: parknest_mobile
+description: "ParkNest renter and host app."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # Routing. Declarative, and redirects are a first-class concept — the whole
+  # signed-in/signed-out split is one redirect rather than a guard on every screen.
+  go_router: ^14.2.7
+
+  # HTTP. Interceptors are the reason: the refresh-and-retry dance on a 401 belongs in one
+  # place, not at every call site.
+  dio: ^5.7.0
+
+  # Tokens go in the platform keystore/keychain, not shared preferences. A refresh token is a
+  # month-long session; on a rooted device plain prefs are readable by anything.
+  flutter_secure_storage: ^9.2.2
+
+  # Non-secret UI state (last known city, whether the user has seen onboarding).
+  shared_preferences: ^2.3.2
+
+  # Opens the payment checkout sheet in the system browser rather than an in-app webview, so
+  # the user can see the URL they are paying on.
+  url_launcher: ^6.3.0
+
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
