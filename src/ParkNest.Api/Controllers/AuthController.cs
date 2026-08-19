@@ -43,6 +43,34 @@ public sealed class AuthController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Trades a refresh token for a fresh pair. The presented token is spent, so a client must
+    /// store what comes back — replaying the old one is read as a leak and ends the session.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.OtpVerify)]
+    [HttpPost("refresh")]
+    public async Task<ActionResult<AuthResult>> Refresh(
+        [FromBody] RefreshRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await _auth.RefreshAsync(request.RefreshToken, cancellationToken));
+
+    /// <summary>
+    /// Signs out, ending the session on the server rather than only in the client. Anonymous
+    /// because the access token may already have expired — the refresh token is the credential
+    /// being surrendered, and it authenticates the request by itself.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.OtpVerify)]
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout(
+        [FromBody] RefreshRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _auth.RevokeAsync(request.RefreshToken, cancellationToken);
+        return NoContent();
+    }
+
     /// <summary>Who the current token belongs to. Useful for clients restoring a session.</summary>
     [HttpGet("me")]
     public ActionResult<CurrentUserResponse> Me() =>
@@ -52,5 +80,7 @@ public sealed class AuthController : ControllerBase
 public sealed record RequestOtpRequest(string Phone);
 
 public sealed record VerifyOtpRequest(string Phone, string Code);
+
+public sealed record RefreshRequest(string RefreshToken);
 
 public sealed record CurrentUserResponse(Guid UserId, string? Role);

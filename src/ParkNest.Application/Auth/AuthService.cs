@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
 using ParkNest.Application.Options;
@@ -16,19 +17,22 @@ public sealed class AuthService : IAuthService
     private readonly IOtpSender _otpSender;
     private readonly IClock _clock;
     private readonly AuthOptions _options;
+    private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IParkNestDbContext db,
         ITokenService tokens,
         IOtpSender otpSender,
         IClock clock,
-        IOptions<AuthOptions> options)
+        IOptions<AuthOptions> options,
+        ILogger<AuthService> logger)
     {
         _db = db;
         _tokens = tokens;
         _otpSender = otpSender;
         _clock = clock;
         _options = options.Value;
+        _logger = logger;
     }
 
     public async Task<OtpChallenge> RequestOtpAsync(string phone, CancellationToken cancellationToken = default)
@@ -116,10 +120,140 @@ public sealed class AuthService : IAuthService
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        var (token, expiresAt) = _tokens.CreateAccessToken(user.Id, user.Role, user.Phone);
+        var (result, _) = await IssueAsync(user, Guid.NewGuid(), isNewUser, cancellationToken);
 
-        return new AuthResult(token, expiresAt, user.Id, user.Role, isNewUser);
+        return result;
     }
+
+    public async Task<AuthResult> RefreshAsync(string refreshToken, CancellationToken cancellationToken = default)
+    {
+        var now = _clock.UtcNow;
+        var hash = HashRefreshToken(refreshToken);
+
+        var stored = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, cancellationToken);
+
+        if (stored is null)
+        {
+            throw new UnauthorizedException("That session is no longer valid. Sign in again.");
+        }
+
+        if (stored.RevokedAt is not null)
+        {
+            // A token that was already spent is being presented again. Either it leaked, or a
+            // client is retrying a refresh whose response it never received — and we cannot tell
+            // which from here. Killing the whole family is the safe reading: the honest client
+            // signs in again, the thief gets nothing.
+            await RevokeFamilyAsync(stored.FamilyId, now, "Replayed after rotation.", cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "Refresh token replay detected for user {UserId}; revoked session family {FamilyId}.",
+                stored.UserId, stored.FamilyId);
+
+            throw new UnauthorizedException("That session is no longer valid. Sign in again.");
+        }
+
+        if (!stored.IsActive(now))
+        {
+            throw new UnauthorizedException("That session has expired. Sign in again.");
+        }
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == stored.UserId, cancellationToken)
+                   ?? throw new UnauthorizedException("That session is no longer valid. Sign in again.");
+
+        var (result, issued) = await IssueAsync(user, stored.FamilyId, isNewUser: false, cancellationToken);
+
+        // Spent, not deleted: the chain is what makes a later replay detectable.
+        stored.RevokedAt = now;
+        stored.RevokedReason = "Rotated.";
+        stored.ReplacedByTokenId = issued.Id;
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return result;
+    }
+
+    public async Task RevokeAsync(string refreshToken, CancellationToken cancellationToken = default)
+    {
+        var hash = HashRefreshToken(refreshToken);
+        var stored = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, cancellationToken);
+
+        if (stored is null)
+        {
+            // Signing out with a token we do not recognise is not an error worth reporting: the
+            // caller wanted to be signed out and they are. Saying otherwise only tells someone
+            // probing which tokens exist.
+            return;
+        }
+
+        await RevokeFamilyAsync(stored.FamilyId, _clock.UtcNow, "Signed out.", cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>Mints an access token and a refresh token, both belonging to one sign-in family.</summary>
+    private async Task<(AuthResult Result, RefreshToken Record)> IssueAsync(
+        User user,
+        Guid familyId,
+        bool isNewUser,
+        CancellationToken cancellationToken)
+    {
+        var now = _clock.UtcNow;
+        var (accessToken, expiresAt) = _tokens.CreateAccessToken(user.Id, user.Role, user.Phone);
+
+        var refreshToken = GenerateRefreshToken();
+        var record = new RefreshToken
+        {
+            UserId = user.Id,
+            TokenHash = HashRefreshToken(refreshToken),
+            FamilyId = familyId,
+            ExpiresAt = now.AddDays(_options.RefreshTokenLifetimeDays),
+            CreatedAt = now
+        };
+
+        _db.RefreshTokens.Add(record);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return (new AuthResult(
+            accessToken,
+            expiresAt,
+            user.Id,
+            user.Role,
+            isNewUser,
+            refreshToken,
+            record.ExpiresAt), record);
+    }
+
+    private async Task RevokeFamilyAsync(
+        Guid familyId,
+        DateTimeOffset now,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var family = await _db.RefreshTokens
+            .Where(t => t.FamilyId == familyId && t.RevokedAt == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var token in family)
+        {
+            token.RevokedAt = now;
+            token.RevokedReason = reason;
+        }
+    }
+
+    /// <summary>
+    /// 256 bits of randomness. Unlike the OTP this is never typed by a human, so it can be as long
+    /// as it likes and does not need a guessing cap to be safe.
+    /// </summary>
+    private static string GenerateRefreshToken() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .Replace("+", "-").Replace("/", "_").TrimEnd('=');
+
+    /// <summary>
+    /// Plain SHA-256, not the peppered HMAC the OTP uses. A six-digit code is brute-forceable from
+    /// its hash and needs the secret to stop that; a 256-bit random string is not.
+    /// </summary>
+    private static string HashRefreshToken(string token) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
 
     /// <summary>
     /// Caps how much SMS a single number can cost us, on two axes: a cooldown between consecutive

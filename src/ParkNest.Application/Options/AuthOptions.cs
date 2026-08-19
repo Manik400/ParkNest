@@ -14,7 +14,15 @@ public sealed class AuthOptions
     public string Issuer { get; set; } = "parknest";
     public string Audience { get; set; } = "parknest-clients";
 
-    public int AccessTokenLifetimeMinutes { get; set; } = 60 * 12;
+    /// <summary>
+    /// Short, because a signed JWT cannot be withdrawn — there is no server-side state to revoke,
+    /// so the only real control over a stolen one is that it expires. Session length lives on the
+    /// refresh token instead, which is stored and therefore revocable.
+    /// </summary>
+    public int AccessTokenLifetimeMinutes { get; set; } = 60;
+
+    /// <summary>How long a session survives without the user signing in again.</summary>
+    public int RefreshTokenLifetimeDays { get; set; } = 30;
 
     public int OtpLifetimeMinutes { get; set; } = 5;
 

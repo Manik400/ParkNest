@@ -28,6 +28,8 @@ export interface AuthResult {
   userId: string;
   role: UserRole;
   isNewUser: boolean;
+  refreshToken: string;
+  refreshExpiresAt: string;
 }
 
 export interface Wallet {

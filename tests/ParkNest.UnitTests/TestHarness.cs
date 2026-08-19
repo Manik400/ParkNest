@@ -82,7 +82,8 @@ public sealed class TestHarness : IDisposable
             new FakeTokenService(),
             OtpSender,
             Clock,
-            Microsoft.Extensions.Options.Options.Create(AuthOptions));
+            Microsoft.Extensions.Options.Options.Create(AuthOptions),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<AuthService>.Instance);
     }
 
     public PlatformOptions Options { get; }

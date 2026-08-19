@@ -21,6 +21,7 @@ public interface IParkNestDbContext
     DbSet<User> Users { get; }
     DbSet<Vehicle> Vehicles { get; }
     DbSet<OtpCode> OtpCodes { get; }
+    DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<ParkingSpace> ParkingSpaces { get; }
     DbSet<AvailabilityWindow> AvailabilityWindows { get; }
     DbSet<AvailabilityBlackout> AvailabilityBlackouts { get; }

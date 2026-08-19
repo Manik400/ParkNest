@@ -1,4 +1,5 @@
 using FluentAssertions;
+using ParkNest.Application.Auth;
 using Microsoft.EntityFrameworkCore;
 using ParkNest.Domain.Common;
 
@@ -230,6 +231,144 @@ public sealed class AuthServiceTests : IDisposable
 
         thrown.Which.RetryAfter.Should().BePositive()
             .And.BeLessThanOrEqualTo(TimeSpan.FromSeconds(_h.AuthOptions.OtpResendCooldownSeconds));
+    }
+
+
+    [Fact]
+    public async Task Signing_in_returns_a_refresh_token_alongside_the_access_token()
+    {
+        await _h.Auth.RequestOtpAsync(Phone);
+        var result = await _h.Auth.VerifyOtpAsync(Phone, _h.OtpSender.LastCode!);
+
+        result.RefreshToken.Should().NotBeNullOrWhiteSpace();
+        result.RefreshExpiresAt.Should().BeAfter(result.ExpiresAt,
+            "the point of a refresh token is to outlive the access token it replaces");
+    }
+
+    [Fact]
+    public async Task The_raw_refresh_token_is_never_stored()
+    {
+        var session = await SignInAsync();
+
+        var stored = await _h.Db.RefreshTokens.SingleAsync();
+
+        stored.TokenHash.Should().NotBe(session.RefreshToken);
+        stored.TokenHash.Should().NotContain(session.RefreshToken);
+    }
+
+    [Fact]
+    public async Task A_refresh_token_buys_a_new_access_token()
+    {
+        var session = await SignInAsync();
+
+        _h.Clock.Advance(TimeSpan.FromMinutes(1));
+        var refreshed = await _h.Auth.RefreshAsync(session.RefreshToken);
+
+        refreshed.UserId.Should().Be(session.UserId);
+        refreshed.AccessToken.Should().NotBeNullOrWhiteSpace();
+        refreshed.RefreshToken.Should().NotBe(session.RefreshToken, "every use rotates the token");
+    }
+
+    [Fact]
+    public async Task The_old_refresh_token_stops_working_once_it_has_been_used()
+    {
+        var session = await SignInAsync();
+        await _h.Auth.RefreshAsync(session.RefreshToken);
+
+        var act = () => _h.Auth.RefreshAsync(session.RefreshToken);
+
+        await act.Should().ThrowAsync<UnauthorizedException>();
+    }
+
+    [Fact]
+    public async Task Replaying_a_spent_token_ends_the_whole_session()
+    {
+        // The honest client and the thief both hold a token from the same chain, and we cannot
+        // tell which is which — so neither keeps their session.
+        var session = await SignInAsync();
+        var second = await _h.Auth.RefreshAsync(session.RefreshToken);
+
+        var replay = () => _h.Auth.RefreshAsync(session.RefreshToken);
+        await replay.Should().ThrowAsync<UnauthorizedException>();
+
+        var act = () => _h.Auth.RefreshAsync(second.RefreshToken);
+        await act.Should().ThrowAsync<UnauthorizedException>();
+    }
+
+    [Fact]
+    public async Task An_expired_refresh_token_is_refused()
+    {
+        var session = await SignInAsync();
+
+        _h.Clock.Advance(TimeSpan.FromDays(_h.AuthOptions.RefreshTokenLifetimeDays + 1));
+
+        var act = () => _h.Auth.RefreshAsync(session.RefreshToken);
+
+        await act.Should().ThrowAsync<UnauthorizedException>();
+    }
+
+    [Fact]
+    public async Task A_made_up_refresh_token_is_refused()
+    {
+        await SignInAsync();
+
+        var act = () => _h.Auth.RefreshAsync("not-a-real-token");
+
+        await act.Should().ThrowAsync<UnauthorizedException>();
+    }
+
+    [Fact]
+    public async Task Signing_out_ends_the_session()
+    {
+        var session = await SignInAsync();
+
+        await _h.Auth.RevokeAsync(session.RefreshToken);
+
+        var act = () => _h.Auth.RefreshAsync(session.RefreshToken);
+        await act.Should().ThrowAsync<UnauthorizedException>();
+    }
+
+    [Fact]
+    public async Task Signing_out_ends_every_token_descended_from_that_sign_in()
+    {
+        var session = await SignInAsync();
+        var refreshed = await _h.Auth.RefreshAsync(session.RefreshToken);
+
+        await _h.Auth.RevokeAsync(refreshed.RefreshToken);
+
+        var act = () => _h.Auth.RefreshAsync(refreshed.RefreshToken);
+        await act.Should().ThrowAsync<UnauthorizedException>();
+    }
+
+    [Fact]
+    public async Task Signing_out_with_an_unknown_token_is_not_an_error()
+    {
+        // The caller wanted to be signed out and they are. Reporting otherwise only tells someone
+        // probing which tokens exist.
+        var act = () => _h.Auth.RevokeAsync("not-a-real-token");
+
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task Signing_out_of_one_session_leaves_another_alone()
+    {
+        var phone = "9000000003";
+        var first = await SignInAsync();
+
+        await _h.Auth.RequestOtpAsync(phone);
+        var second = await _h.Auth.VerifyOtpAsync(phone, _h.OtpSender.LastCode!);
+
+        await _h.Auth.RevokeAsync(first.RefreshToken);
+
+        var refreshed = await _h.Auth.RefreshAsync(second.RefreshToken);
+        refreshed.UserId.Should().Be(second.UserId);
+    }
+
+    private async Task<AuthResult> SignInAsync()
+    {
+        await _h.Auth.RequestOtpAsync(Phone);
+        return await _h.Auth.VerifyOtpAsync(Phone, _h.OtpSender.LastCode!);
     }
 
 }

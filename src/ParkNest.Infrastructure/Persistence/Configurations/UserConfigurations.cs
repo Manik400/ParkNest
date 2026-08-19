@@ -58,3 +58,24 @@ public sealed class VehicleConfiguration : IEntityTypeConfiguration<Vehicle>
         builder.HasIndex(v => v.PlateNumber);
     }
 }
+
+public sealed class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
+{
+    public void Configure(EntityTypeBuilder<RefreshToken> builder)
+    {
+        builder.ToTable("refresh_tokens");
+        builder.HasKey(t => t.Id);
+
+        // 64 hex characters of SHA-256. Unique, so a presented token resolves to exactly one row.
+        builder.Property(t => t.TokenHash).HasMaxLength(64).IsRequired();
+        builder.HasIndex(t => t.TokenHash).IsUnique();
+
+        builder.Property(t => t.RevokedReason).HasMaxLength(200);
+
+        // Revoking a whole family on replay reads by family id.
+        builder.HasIndex(t => t.FamilyId);
+
+        // Listing or culling a user's sessions.
+        builder.HasIndex(t => new { t.UserId, t.ExpiresAt });
+    }
+}
