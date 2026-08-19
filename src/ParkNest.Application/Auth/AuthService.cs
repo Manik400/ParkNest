@@ -36,6 +36,9 @@ public sealed class AuthService : IAuthService
         phone = NormalisePhone(phone);
 
         var now = _clock.UtcNow;
+
+        await EnforceRequestLimitsAsync(phone, now, cancellationToken);
+
         var code = GenerateCode();
 
         // Any earlier live code for this number is burned, so requesting a new one cannot be used
@@ -116,6 +119,51 @@ public sealed class AuthService : IAuthService
         var (token, expiresAt) = _tokens.CreateAccessToken(user.Id, user.Role, user.Phone);
 
         return new AuthResult(token, expiresAt, user.Id, user.Role, isNewUser);
+    }
+
+    /// <summary>
+    /// Caps how much SMS a single number can cost us, on two axes: a cooldown between consecutive
+    /// codes, and a ceiling over a rolling window.
+    ///
+    /// This is counted per phone number rather than per caller because the number is what costs
+    /// money — an attacker rotating IPs still cannot make us send a sixth message to the same
+    /// handset in an hour. Per-caller limiting sits in front of this at the HTTP edge; neither is
+    /// sufficient alone.
+    /// </summary>
+    private async Task EnforceRequestLimitsAsync(string phone, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var windowStart = now.AddMinutes(-_options.OtpRequestWindowMinutes);
+
+        var recent = await _db.OtpCodes
+            .Where(o => o.Phone == phone && o.CreatedAt >= windowStart)
+            .OrderByDescending(o => o.CreatedAt)
+            .Select(o => o.CreatedAt)
+            .Take(_options.OtpMaxRequestsPerWindow)
+            .ToListAsync(cancellationToken);
+
+        if (recent.Count > 0)
+        {
+            var sinceLast = now - recent[0];
+            var cooldown = TimeSpan.FromSeconds(_options.OtpResendCooldownSeconds);
+
+            if (sinceLast < cooldown)
+            {
+                throw new TooManyRequestsException(
+                    "A code was just sent. Wait a moment before asking for another.",
+                    cooldown - sinceLast);
+            }
+        }
+
+        if (recent.Count >= _options.OtpMaxRequestsPerWindow)
+        {
+            // recent is capped at the limit and newest-first, so the last element is the oldest
+            // request still inside the window — the moment it ages out is when a slot frees up.
+            var retryAfter = recent[^1].AddMinutes(_options.OtpRequestWindowMinutes) - now;
+
+            throw new TooManyRequestsException(
+                "Too many codes requested for this number. Try again later.",
+                retryAfter > TimeSpan.Zero ? retryAfter : TimeSpan.FromMinutes(1));
+        }
     }
 
     /// <summary>Cryptographically random, so codes cannot be predicted from a previous one.</summary>

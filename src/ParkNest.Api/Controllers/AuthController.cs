@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ParkNest.Application.Abstractions;
 using ParkNest.Application.Auth;
 
@@ -20,6 +21,7 @@ public sealed class AuthController : ControllerBase
 
     /// <summary>Sends a one-time code. Creates the account on first use.</summary>
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.OtpRequest)]
     [HttpPost("request-otp")]
     public async Task<ActionResult<OtpChallenge>> RequestOtp(
         [FromBody] RequestOtpRequest request,
@@ -31,6 +33,7 @@ public sealed class AuthController : ControllerBase
 
     /// <summary>Exchanges a valid code for a bearer token.</summary>
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.OtpVerify)]
     [HttpPost("verify-otp")]
     public async Task<ActionResult<AuthResult>> VerifyOtp(
         [FromBody] VerifyOtpRequest request,

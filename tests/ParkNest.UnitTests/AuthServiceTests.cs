@@ -8,6 +8,12 @@ public sealed class AuthServiceTests : IDisposable
 {
     private const string Phone = "9876543210";
 
+    /// <summary>
+    /// Long enough to clear the resend cooldown. Tests that ask for a second code are describing a
+    /// user who waited, not a user hammering the button — that case is covered separately below.
+    /// </summary>
+    private static readonly TimeSpan PastCooldown = TimeSpan.FromMinutes(2);
+
     private readonly TestHarness _h = new();
 
     public void Dispose() => _h.Dispose();
@@ -31,6 +37,7 @@ public sealed class AuthServiceTests : IDisposable
         await _h.Auth.RequestOtpAsync(Phone);
         var first = await _h.Auth.VerifyOtpAsync(Phone, _h.OtpSender.LastCode!);
 
+        _h.Clock.Advance(PastCooldown);
         await _h.Auth.RequestOtpAsync(Phone);
         var second = await _h.Auth.VerifyOtpAsync(Phone, _h.OtpSender.LastCode!);
 
@@ -109,6 +116,7 @@ public sealed class AuthServiceTests : IDisposable
         await _h.Auth.RequestOtpAsync(Phone);
         var firstCode = _h.OtpSender.LastCode!;
 
+        _h.Clock.Advance(PastCooldown);
         await _h.Auth.RequestOtpAsync(Phone);
 
         var act = () => _h.Auth.VerifyOtpAsync(Phone, firstCode);
@@ -143,9 +151,85 @@ public sealed class AuthServiceTests : IDisposable
         await _h.Auth.RequestOtpAsync("+91 98765 43210");
         var first = await _h.Auth.VerifyOtpAsync("9198765 43210", _h.OtpSender.LastCode!);
 
+        _h.Clock.Advance(PastCooldown);
         await _h.Auth.RequestOtpAsync("+919876543210");
         var second = await _h.Auth.VerifyOtpAsync("919876543210", _h.OtpSender.LastCode!);
 
         second.UserId.Should().Be(first.UserId);
     }
+
+    [Fact]
+    public async Task A_second_code_cannot_be_requested_inside_the_cooldown()
+    {
+        await _h.Auth.RequestOtpAsync(Phone);
+
+        var act = () => _h.Auth.RequestOtpAsync(Phone);
+
+        await act.Should().ThrowAsync<TooManyRequestsException>();
+        _h.OtpSender.Sent.Should().HaveCount(1, "the second request must not reach the SMS gateway");
+    }
+
+    [Fact]
+    public async Task The_cooldown_lifts_once_it_has_elapsed()
+    {
+        await _h.Auth.RequestOtpAsync(Phone);
+
+        _h.Clock.Advance(TimeSpan.FromSeconds(_h.AuthOptions.OtpResendCooldownSeconds));
+        await _h.Auth.RequestOtpAsync(Phone);
+
+        _h.OtpSender.Sent.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_number_cannot_be_sent_more_codes_than_the_window_allows()
+    {
+        for (var i = 0; i < _h.AuthOptions.OtpMaxRequestsPerWindow; i++)
+        {
+            await _h.Auth.RequestOtpAsync(Phone);
+            _h.Clock.Advance(PastCooldown);
+        }
+
+        var act = () => _h.Auth.RequestOtpAsync(Phone);
+
+        await act.Should().ThrowAsync<TooManyRequestsException>();
+        _h.OtpSender.Sent.Should().HaveCount(_h.AuthOptions.OtpMaxRequestsPerWindow);
+    }
+
+    [Fact]
+    public async Task The_window_rolls_so_a_blocked_number_is_not_blocked_forever()
+    {
+        for (var i = 0; i < _h.AuthOptions.OtpMaxRequestsPerWindow; i++)
+        {
+            await _h.Auth.RequestOtpAsync(Phone);
+            _h.Clock.Advance(PastCooldown);
+        }
+
+        _h.Clock.Advance(TimeSpan.FromMinutes(_h.AuthOptions.OtpRequestWindowMinutes));
+        await _h.Auth.RequestOtpAsync(Phone);
+
+        _h.OtpSender.Sent.Should().HaveCount(_h.AuthOptions.OtpMaxRequestsPerWindow + 1);
+    }
+
+    [Fact]
+    public async Task The_limit_is_per_number_so_one_flooded_number_does_not_lock_out_another()
+    {
+        await _h.Auth.RequestOtpAsync(Phone);
+
+        await _h.Auth.RequestOtpAsync("9000000002");
+
+        _h.OtpSender.Sent.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_throttled_request_says_when_to_come_back()
+    {
+        await _h.Auth.RequestOtpAsync(Phone);
+
+        var thrown = await ((Func<Task>)(() => _h.Auth.RequestOtpAsync(Phone)))
+            .Should().ThrowAsync<TooManyRequestsException>();
+
+        thrown.Which.RetryAfter.Should().BePositive()
+            .And.BeLessThanOrEqualTo(TimeSpan.FromSeconds(_h.AuthOptions.OtpResendCooldownSeconds));
+    }
+
 }

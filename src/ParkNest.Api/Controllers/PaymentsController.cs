@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ParkNest.Application.Payments;
 
 namespace ParkNest.Api.Controllers;
@@ -40,6 +41,7 @@ public sealed class PaymentsController : ControllerBase
     /// signature is the only thing standing between this endpoint and free credits.
     /// </summary>
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.PaymentWebhook)]
     [HttpPost("webhook")]
     public async Task<IActionResult> Webhook(CancellationToken cancellationToken)
     {

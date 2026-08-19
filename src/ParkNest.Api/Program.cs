@@ -1,11 +1,14 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using ParkNest.Api;
 using ParkNest.Api.Auth;
 using ParkNest.Application.Abstractions;
 using ParkNest.Application.Options;
@@ -56,6 +59,74 @@ builder.Services
     .AddControllers()
     .AddJsonOptions(options =>
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
+// Rate limiting, at the edge, for everything reachable without a token. The service layer caps
+// what a single phone number can cost us; this caps what a single caller can cost us, which is a
+// different attack — one number under a flood of IPs versus one IP walking a list of numbers.
+//
+// Partitioned by remote IP. Behind a reverse proxy that means the proxy unless it is configured to
+// forward the client address, so ForwardedHeaders has to be on before this is load-bearing in a
+// real deployment.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // A ProblemDetails body, so a 429 from the middleware reads the same as a 429 from the
+    // service layer. A client should not have to parse two shapes for one condition.
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter =
+                ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+        }
+
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        await context.HttpContext.Response.WriteAsJsonAsync(new ProblemDetails
+        {
+            Status = StatusCodes.Status429TooManyRequests,
+            Title = "Too many requests",
+            Detail = "Slow down and try again shortly.",
+            Type = nameof(TooManyRequestsException)
+        }, cancellationToken);
+    };
+
+    // Sending an SMS costs money, so this is the tightest bucket in the system.
+    options.AddPolicy(RateLimitPolicies.OtpRequest, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(15),
+            QueueLimit = 0
+        }));
+
+    // Verification is free to serve but is the brute-force surface; the per-code attempt cap
+    // already bounds guesses against one code, this bounds guesses across many.
+    options.AddPolicy(RateLimitPolicies.OtpVerify, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(15),
+            QueueLimit = 0
+        }));
+
+    // The webhook is anonymous and every call costs an HMAC over the body before it can be
+    // rejected. Generous, because a real gateway retries failed deliveries and must not be
+    // throttled into giving up.
+    options.AddPolicy(RateLimitPolicies.PaymentWebhook, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 120,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
+    static string ClientKey(HttpContext http) =>
+        http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+});
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddProblemDetails();
@@ -110,6 +181,7 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
     var (status, title) = exception switch
     {
         UnauthorizedException => (StatusCodes.Status401Unauthorized, "Authentication required"),
+        TooManyRequestsException => (StatusCodes.Status429TooManyRequests, "Too many requests"),
         ForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden"),
         InsufficientCreditsException => (StatusCodes.Status402PaymentRequired, "Insufficient credits"),
         DomainException => (StatusCodes.Status400BadRequest, "Request rejected"),
@@ -125,6 +197,13 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
         Type = exception?.GetType().Name
     };
 
+    // Tell the caller when to come back rather than leaving them to guess and hammer.
+    if (exception is TooManyRequestsException throttled)
+    {
+        context.Response.Headers.RetryAfter =
+            ((int)Math.Ceiling(throttled.RetryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+    }
+
     context.Response.StatusCode = status;
     await context.Response.WriteAsJsonAsync(problem);
 }));
@@ -139,6 +218,9 @@ if (!app.Environment.IsProduction())
 {
     app.UseCors(devCorsPolicy);
 }
+
+// Ahead of authentication: a flood should be shed before it costs us a signature validation.
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();

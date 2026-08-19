@@ -21,6 +21,18 @@ public sealed class AuthOptions
     /// <summary>Wrong guesses allowed before a code is burned.</summary>
     public int OtpMaxAttempts { get; set; } = 5;
 
+    /// <summary>
+    /// Shortest gap between two code requests for the same number. Stops a "resend" button held
+    /// down from becoming an SMS bill.
+    /// </summary>
+    public int OtpResendCooldownSeconds { get; set; } = 60;
+
+    /// <summary>Codes a single number may be sent within <see cref="OtpRequestWindowMinutes"/>.</summary>
+    public int OtpMaxRequestsPerWindow { get; set; } = 5;
+
+    /// <summary>The rolling window the request cap is counted over.</summary>
+    public int OtpRequestWindowMinutes { get; set; } = 60;
+
     /// <summary>Server-side key for hashing OTPs at rest. Must also come from a secret store.</summary>
     public string OtpPepper { get; set; } = string.Empty;
 
