@@ -87,6 +87,9 @@ PARKNEST_TEST_CONNECTION="Host=localhost;Port=5432;Database=parknest;Username=pa
 A plain `dotnet test` runs both; without that variable the integration tests report as skipped
 rather than passing silently.
 
+Any PostGIS-enabled Postgres will do — point the variable at a database you do not mind the tests
+writing to. They clean up after themselves, but a scratch database is still the right habit.
+
 ### Admin console
 
 ```bash
