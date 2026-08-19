@@ -18,10 +18,11 @@ pluginManagement {
 
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    id "com.android.application" version "8.1.4" apply false
-    // flutter_secure_storage 9.x is built against a newer Kotlin than the project template
-    // pinned, and refuses to compile below it. Java 17 is what this toolchain has, which AGP 8.1
-    // and Gradle 8.x both expect.
+    id "com.android.application" version "7.3.0" apply false
+    // Kotlin alone moves off the template's 1.7.10, which flutter_secure_storage 9.x refuses to
+    // compile against. AGP and Gradle stay where `flutter create` put them: raising those breaks
+    // how the Flutter Gradle plugin configures plugin subprojects, and geolocator — which reads
+    // flutter.compileSdkVersion — then fails to configure at all.
     id "org.jetbrains.kotlin.android" version "1.9.22" apply false
 }
 

@@ -516,3 +516,80 @@ class Dispute {
 
   bool get isDecided => status == 'Resolved' || status == 'Rejected';
 }
+
+/// A new listing, on its way out rather than in.
+///
+/// Availability is required in practice: the API refuses to publish a space with no windows,
+/// because an always-closed pin on the map is worse than no pin at all.
+class CreateListingRequest {
+  const CreateListingRequest({
+    required this.title,
+    required this.addressLine,
+    required this.city,
+    required this.latitude,
+    required this.longitude,
+    required this.pricePerHour,
+    required this.supportedVehicleTypes,
+    required this.availabilityWindows,
+    this.zone,
+    this.timeZoneId = 'Asia/Kolkata',
+  });
+
+  final String title;
+  final String addressLine;
+  final String city;
+  final String? zone;
+  final double latitude;
+  final double longitude;
+  final double pricePerHour;
+  final List<String> supportedVehicleTypes;
+  final List<AvailabilityWindowRequest> availabilityWindows;
+
+  /// The zone the windows are expressed in. Windows are wall-clock — "open 09:00 to 17:00" — so
+  /// without this a space in another city would silently keep the server's hours.
+  final String timeZoneId;
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'addressLine': addressLine,
+        'city': city,
+        'zone': zone,
+        'latitude': latitude,
+        'longitude': longitude,
+        'pricePerHour': pricePerHour,
+        'supportedVehicleTypes': supportedVehicleTypes,
+        'availabilityWindows': availabilityWindows.map((w) => w.toJson()).toList(),
+        'timeZoneId': timeZoneId,
+      };
+}
+
+/// One opening window on one day.
+///
+/// An end earlier than the start runs overnight (22:00 to 06:00). Equal to it means the full
+/// twenty-four hours, which is how a 24/7 basement is expressed — a zero-length window is said by
+/// having no window at all.
+class AvailabilityWindowRequest {
+  const AvailabilityWindowRequest({
+    required this.dayOfWeek,
+    required this.startTime,
+    required this.endTime,
+  });
+
+  /// The .NET day name the API expects: Sunday through Saturday.
+  final String dayOfWeek;
+
+  final Duration startTime;
+  final Duration endTime;
+
+  static String _hhmmss(Duration value) {
+    final hours = value.inHours.toString().padLeft(2, '0');
+    final minutes = (value.inMinutes % 60).toString().padLeft(2, '0');
+    return '$hours:$minutes:00';
+  }
+
+  Map<String, dynamic> toJson() => {
+        'dayOfWeek': dayOfWeek,
+        'startTime': _hhmmss(startTime),
+        'endTime': _hhmmss(endTime),
+      };
+}

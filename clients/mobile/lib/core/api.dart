@@ -109,6 +109,21 @@ class Api {
   Future<List<ListingSummary>> myListings() async =>
       _list(await client.get('/api/listings/me'), ListingSummary.fromJson);
 
+  /// Creates a listing as a draft. Nothing is bookable until it is published, which is a separate
+  /// call because publishing is what validates the price against the city band.
+  Future<String> createListing(CreateListingRequest request) async {
+    final response = _map(await client.post('/api/listings', body: request.toJson()));
+    return response['id'] as String;
+  }
+
+  /// Puts the space on the map. Refused if the price falls outside the city band, or if the
+  /// listing has no availability — an always-closed pin is worse than no pin.
+  Future<void> publishListing(String spaceId) =>
+      client.post('/api/listings/$spaceId/publish', body: {});
+
+  Future<void> setListingStatus(String spaceId, String status) =>
+      client.post('/api/listings/$spaceId/status', body: {'status': status});
+
   // --- Bookings -----------------------------------------------------------
 
   /// Prices a session without reserving anything, so the cost — and the reason it would be

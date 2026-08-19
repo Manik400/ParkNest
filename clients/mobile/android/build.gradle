@@ -13,6 +13,37 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+/**
+ * Supplies the `flutter` extension that geolocator_android expects on its own project.
+ *
+ * From 4.6 onwards it writes `compileSdk flutter.compileSdkVersion` inside its android block.
+ * flutter_tools only started adding that extension to plugin subprojects after 3.24, so on this
+ * SDK the plugin fails during configuration — "Could not get unknown property 'flutter'" — before
+ * anything in this app is even read. Every other plugin we depend on hardcodes `compileSdk 34`
+ * and is unaffected.
+ *
+ * The alternatives were worse: pinning a geolocator old enough to predate the change means an
+ * abandoned version, and upgrading the Flutter SDK is a machine-wide decision that does not belong
+ * in a project file. This shim is narrow, and becomes dead weight rather than a hazard once the
+ * SDK moves on — at which point flutter_tools registers its own extension first and this one is
+ * skipped.
+ */
+class FlutterSdkVersionsShim {
+    // Matched to what the other plugins hardcode, so the whole build agrees on one compile SDK.
+    int compileSdkVersion = 34
+    int minSdkVersion = 21
+    int targetSdkVersion = 34
+    String ndkVersion = null
+}
+
+subprojects { subproject ->
+    subproject.beforeEvaluate {
+        if (subproject.extensions.findByName("flutter") == null) {
+            subproject.extensions.add("flutter", new FlutterSdkVersionsShim())
+        }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }

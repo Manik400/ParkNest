@@ -34,6 +34,19 @@ dependencies:
 
   intl: ^0.19.0
 
+  # Device location, so finding parking does not start with typing coordinates.
+  #
+  # Pinned below 14 for the iOS/Dart API, and note android/build.gradle: every geolocator_android
+  # from 4.6 on reads `flutter.compileSdkVersion`, a property flutter_tools only began giving
+  # plugin subprojects after 3.24.
+  geolocator: ^13.0.1
+
+  # OpenStreetMap tiles through flutter_map. No API key and no billing account, which matters for
+  # a map that only has to answer "which of these pins is nearest me" — the admin console already
+  # uses Leaflet against the same tiles, so the two clients render the same world.
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

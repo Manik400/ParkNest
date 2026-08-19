@@ -3,6 +3,10 @@
          error anyone can act on. Flutter's template only adds it to debug and profile builds. -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- Coarse only. The search radius starts at a kilometre, so street-level precision buys
+         nothing and asking for it invites a refusal the app then has to work around anyway. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
     <application
         android:label="parknest_mobile"
         android:name="${applicationName}"

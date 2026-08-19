@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'core/api.dart';
 import 'core/api_client.dart';
 import 'core/session.dart';
+import 'screens/add_listing_screen.dart';
 import 'screens/booking_detail_screen.dart';
 import 'screens/bookings_screen.dart';
 import 'screens/disputes_screen.dart';
@@ -82,6 +83,7 @@ class _ParkNestAppState extends State<ParkNestApp> {
           ),
         ),
         GoRoute(path: '/vehicles', builder: (_, __) => const VehiclesScreen()),
+        GoRoute(path: '/listings/new', builder: (_, __) => const AddListingScreen()),
         GoRoute(path: '/disputes', builder: (_, __) => const DisputesScreen()),
       ],
     );

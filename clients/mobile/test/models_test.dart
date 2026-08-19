@@ -196,4 +196,53 @@ void main() {
     });
   });
 
+
+  group('AvailabilityWindowRequest', () {
+    test('equal start and end means the full twenty-four hours', () {
+      // The API's convention, and the reason "always open" is not expressed by sending no windows
+      // at all — no windows means never open, and publishing is refused.
+      final window = const AvailabilityWindowRequest(
+        dayOfWeek: 'Monday',
+        startTime: Duration.zero,
+        endTime: Duration.zero,
+      ).toJson();
+
+      expect(window['dayOfWeek'], 'Monday');
+      expect(window['startTime'], '00:00:00');
+      expect(window['endTime'], '00:00:00');
+    });
+
+    test('times serialise as the HH:mm:ss the API parses into a TimeOnly', () {
+      final window = const AvailabilityWindowRequest(
+        dayOfWeek: 'Friday',
+        startTime: Duration(hours: 8, minutes: 30),
+        endTime: Duration(hours: 20, minutes: 5),
+      ).toJson();
+
+      expect(window['startTime'], '08:30:00');
+      expect(window['endTime'], '20:05:00');
+    });
+  });
+
+  group('CreateListingRequest', () {
+    test('sends every field the API needs to place and price the space', () {
+      final json = const CreateListingRequest(
+        title: 'Covered driveway',
+        addressLine: 'Indiranagar',
+        city: 'Bengaluru',
+        latitude: 12.9716,
+        longitude: 77.5946,
+        pricePerHour: 60,
+        supportedVehicleTypes: ['FourWheeler'],
+        availabilityWindows: [],
+      ).toJson();
+
+      expect(json['city'], 'Bengaluru');
+      expect(json['supportedVehicleTypes'], ['FourWheeler']);
+      // Windows are wall-clock, so a space in another city would otherwise silently keep the
+      // server's hours.
+      expect(json['timeZoneId'], 'Asia/Kolkata');
+    });
+  });
+
 }

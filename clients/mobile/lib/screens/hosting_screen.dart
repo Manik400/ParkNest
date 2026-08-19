@@ -45,10 +45,23 @@ class _HostingScreenState extends State<HostingScreen> {
     await _data;
   }
 
+  Future<void> _addListing() async {
+    final created = await context.push<bool>('/listings/new');
+
+    // Only reload when something was actually created; backing out of the form should not make
+    // the list flash.
+    if ((created ?? false) && mounted) _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Hosting'), actions: const [HomeMenuButton()]),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _addListing,
+        icon: const Icon(Icons.add),
+        label: const Text('List a space'),
+      ),
       body: RefreshIndicator(
         onRefresh: _reload,
         child: FutureBuilder<({List<ListingSummary> listings, List<BookingSummary> bookings})>(
@@ -74,11 +87,10 @@ class _HostingScreenState extends State<HostingScreen> {
           EmptyState(
             icon: Icons.home_work_outlined,
             title: 'You are not hosting yet',
-            message: 'Listing a space is done in the web console for now — it needs a map to place '
-                'the pin, and photos.',
-            action: OutlinedButton(
-              onPressed: () => context.go('/explore'),
-              child: const Text('Find parking instead'),
+            message: 'Rent out a driveway, a basement bay, or a spot you are not using.',
+            action: FilledButton(
+              onPressed: _addListing,
+              child: const Text('List a space'),
             ),
           ),
         ],
