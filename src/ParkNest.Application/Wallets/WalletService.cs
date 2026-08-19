@@ -238,4 +238,86 @@ public sealed class WalletService : IWalletService
 
         return payout;
     }
+
+    public async Task<Payout> CompletePayoutAsync(
+        Guid payoutId,
+        string? providerReference,
+        CancellationToken cancellationToken = default)
+    {
+        var payout = await FindPayoutAsync(payoutId, cancellationToken);
+
+        if (payout.Status == PayoutStatus.Paid)
+        {
+            // Aggregators retry their callbacks, so seeing this twice is normal.
+            return payout;
+        }
+
+        if (payout.Status == PayoutStatus.Failed)
+        {
+            // The refund has already been posted and the credits are back in the host's earning
+            // balance. Flipping the status to Paid now would claim money left the system when the
+            // ledger says it came back, and there would be no debit to point at.
+            throw new DomainException(
+                $"Payout {payoutId} was already refunded as failed. Request a new cash-out instead.");
+        }
+
+        payout.Status = PayoutStatus.Paid;
+        payout.ProviderReference = providerReference;
+        payout.FailureReason = null;
+        payout.CompletedAt = _clock.UtcNow;
+
+        // No ledger posting: the debit went in when the payout was requested, precisely so the
+        // credits could not be spent while it was in flight. Success is the expected end of that
+        // movement, not a new one.
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return payout;
+    }
+
+    public async Task<Payout> FailPayoutAsync(
+        Guid payoutId,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var payout = await FindPayoutAsync(payoutId, cancellationToken);
+
+        if (payout.Status == PayoutStatus.Failed)
+        {
+            return payout;
+        }
+
+        if (payout.Status == PayoutStatus.Paid)
+        {
+            throw new DomainException(
+                $"Payout {payoutId} is already paid and cannot be failed. A reversal after settlement is a dispute, not a payout failure.");
+        }
+
+        var wallet = await GetOrCreateWalletAsync(payout.HostId, cancellationToken);
+
+        // A compensating transaction, not a deletion: the ledger is append-only and the failed
+        // attempt is part of the host's history. The pair reads as "money left, money came back",
+        // which is what actually happened.
+        await _ledger.PostAsync(
+            LedgerTransactionType.Refund,
+            $"payout-refund:{payout.Id}",
+            new[]
+            {
+                LedgerPosting.Debit(null, LedgerAccountType.ExternalPayout, payout.Amount),
+                LedgerPosting.Credit(wallet.Id, LedgerAccountType.Earning, payout.Amount)
+            },
+            description: $"Refund failed payout {payout.Id}: {reason}",
+            cancellationToken: cancellationToken);
+
+        payout.Status = PayoutStatus.Failed;
+        payout.FailureReason = reason;
+        payout.CompletedAt = _clock.UtcNow;
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return payout;
+    }
+
+    private async Task<Payout> FindPayoutAsync(Guid payoutId, CancellationToken cancellationToken) =>
+        await _db.Payouts.FirstOrDefaultAsync(p => p.Id == payoutId, cancellationToken)
+        ?? throw new DomainException($"Payout {payoutId} does not exist.");
 }

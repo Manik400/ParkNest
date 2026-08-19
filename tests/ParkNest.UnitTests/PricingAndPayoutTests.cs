@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using ParkNest.Application.Listings;
 using ParkNest.Domain.Common;
 
@@ -93,6 +94,117 @@ public sealed class PricingAndPayoutTests : IDisposable
 
         var wallet = await _h.Wallets.GetOrCreateWalletAsync(host.Id);
         wallet.EarningBalance.Should().Be(1200m);
+    }
+
+    [Fact]
+    public async Task A_paid_payout_posts_nothing_further_to_the_ledger()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Verified);
+        await CreditHostAsync(host.Id, 2000m);
+        var payout = await _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+        var before = await _h.Db.LedgerTransactions.CountAsync();
+
+        var completed = await _h.Wallets.CompletePayoutAsync(payout.Id, "pout_abc");
+
+        completed.Status.Should().Be(PayoutStatus.Paid);
+        completed.ProviderReference.Should().Be("pout_abc");
+        (await _h.Db.LedgerTransactions.CountAsync()).Should().Be(before,
+            "the debit was posted when the payout was requested; success is the end of that movement");
+
+        var wallet = await _h.Wallets.GetOrCreateWalletAsync(host.Id);
+        wallet.EarningBalance.Should().Be(1200m);
+    }
+
+    [Fact]
+    public async Task A_rejected_payout_returns_the_credits_to_the_host()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Verified);
+        await CreditHostAsync(host.Id, 2000m);
+        var payout = await _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+
+        var failed = await _h.Wallets.FailPayoutAsync(payout.Id, "Bank account closed.");
+
+        failed.Status.Should().Be(PayoutStatus.Failed);
+        failed.FailureReason.Should().Be("Bank account closed.");
+
+        var wallet = await _h.Wallets.GetOrCreateWalletAsync(host.Id);
+        wallet.EarningBalance.Should().Be(1800m, "the host is whole again");
+    }
+
+    [Fact]
+    public async Task The_refund_is_a_compensating_transaction_not_an_erasure()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Verified);
+        await CreditHostAsync(host.Id, 2000m);
+        var payout = await _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+
+        await _h.Wallets.FailPayoutAsync(payout.Id, "Bank account closed.");
+
+        var types = await _h.Db.LedgerTransactions.Select(t => t.Type).ToListAsync();
+        types.Should().Contain(LedgerTransactionType.Payout, "the failed attempt stays in the history");
+        types.Should().Contain(LedgerTransactionType.Refund);
+    }
+
+    [Fact]
+    public async Task A_refunded_payout_leaves_the_wallet_reconciling_against_its_ledger()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Verified);
+        await CreditHostAsync(host.Id, 2000m);
+        var payout = await _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+
+        await _h.Wallets.FailPayoutAsync(payout.Id, "Bank account closed.");
+
+        var wallet = await _h.Wallets.GetOrCreateWalletAsync(host.Id);
+        var replayed = await _h.Ledger.RecomputeFromEntriesAsync(wallet.Id);
+
+        replayed.Earning.Should().Be(wallet.EarningBalance);
+        replayed.Spendable.Should().Be(wallet.SpendableBalance);
+        replayed.Held.Should().Be(wallet.HeldBalance);
+    }
+
+    [Fact]
+    public async Task Failing_the_same_payout_twice_refunds_once()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Verified);
+        await CreditHostAsync(host.Id, 2000m);
+        var payout = await _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+
+        await _h.Wallets.FailPayoutAsync(payout.Id, "Bank account closed.");
+        await _h.Wallets.FailPayoutAsync(payout.Id, "Bank account closed.");
+
+        var wallet = await _h.Wallets.GetOrCreateWalletAsync(host.Id);
+        wallet.EarningBalance.Should().Be(1800m, "an aggregator retrying its callback must not pay twice");
+        (await _h.Db.LedgerTransactions.CountAsync(t => t.Type == LedgerTransactionType.Refund))
+            .Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_refunded_payout_cannot_later_be_marked_paid()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Verified);
+        await CreditHostAsync(host.Id, 2000m);
+        var payout = await _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+        await _h.Wallets.FailPayoutAsync(payout.Id, "Bank account closed.");
+
+        var act = () => _h.Wallets.CompletePayoutAsync(payout.Id, "pout_abc");
+
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*already refunded*");
+    }
+
+    [Fact]
+    public async Task A_paid_payout_cannot_be_failed_after_the_fact()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Verified);
+        await CreditHostAsync(host.Id, 2000m);
+        var payout = await _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+        await _h.Wallets.CompletePayoutAsync(payout.Id, "pout_abc");
+
+        var act = () => _h.Wallets.FailPayoutAsync(payout.Id, "too late");
+
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*already paid*");
+
+        var wallet = await _h.Wallets.GetOrCreateWalletAsync(host.Id);
+        wallet.EarningBalance.Should().Be(1200m, "money that has left cannot be conjured back by a status flip");
     }
 
     [Fact]

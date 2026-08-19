@@ -28,6 +28,18 @@ public interface IWalletService
 
     /// <summary>Host earning → external payout. Enforces the cash-out floor and KYC.</summary>
     Task<Domain.Payouts.Payout> RequestCashOutAsync(Guid hostId, decimal amount, string idempotencyKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The aggregator has moved the money. Closes the payout; the ledger already recorded the
+    /// debit when it was requested, so nothing new is posted.
+    /// </summary>
+    Task<Domain.Payouts.Payout> CompletePayoutAsync(Guid payoutId, string? providerReference, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The aggregator rejected the payout. Posts a compensating Refund that returns the credits to
+    /// the host's earning balance — the original debit is never deleted or edited.
+    /// </summary>
+    Task<Domain.Payouts.Payout> FailPayoutAsync(Guid payoutId, string reason, CancellationToken cancellationToken = default);
 }
 
 public readonly record struct OverstayDebitResult(decimal Covered, decimal Shortfall)
