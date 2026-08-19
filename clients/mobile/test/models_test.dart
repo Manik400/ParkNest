@@ -148,4 +148,52 @@ void main() {
       expect(Dispute.fromJson(dispute(status: 'Rejected')).isDecided, isTrue);
     });
   });
+
+  group('StartPaymentResult', () {
+    test('carries an envelope, not a URL', () {
+      // Found the hard way against a live sandbox: checkoutPayload is whatever the selected
+      // gateway needs to open its sheet — a path for the sandbox, SDK options for Razorpay.
+      // Handing it straight to a URL parser produces a launch failure with no useful message.
+      final result = StartPaymentResult.fromJson({
+        'orderId': '99999999-9999-9999-9999-999999999999',
+        'providerOrderId': 'sbx_order_811b7ec976c1fe53',
+        'amount': 500,
+        'checkoutPayload': '{"provider":"Sandbox",'
+            '"order_id":"sbx_order_811b7ec976c1fe53",'
+            '"checkout_url":"/sandbox/checkout/sbx_order_811b7ec976c1fe53",'
+            '"amount":500,"currency":"INR"}',
+      });
+
+      expect(result.providerOrderId, 'sbx_order_811b7ec976c1fe53');
+      expect(
+        result.checkoutUrl('http://10.0.2.2:5109'),
+        'http://10.0.2.2:5109/sandbox/checkout/sbx_order_811b7ec976c1fe53',
+        reason: 'the path is relative to the gateway host, which for the sandbox is the API',
+      );
+    });
+
+    test('an absolute checkout url is left alone', () {
+      final result = StartPaymentResult.fromJson({
+        'orderId': '99999999-9999-9999-9999-999999999999',
+        'providerOrderId': 'order_abc',
+        'amount': 500,
+        'checkoutPayload': '{"checkout_url":"https://checkout.example.test/pay/abc"}',
+      });
+
+      expect(result.checkoutUrl('http://10.0.2.2:5109'), 'https://checkout.example.test/pay/abc');
+    });
+
+    test('a gateway with no hosted page yields null rather than a broken link', () {
+      // Razorpay expects its SDK to be opened with these options; there is nothing to launch.
+      final result = StartPaymentResult.fromJson({
+        'orderId': '99999999-9999-9999-9999-999999999999',
+        'providerOrderId': 'order_abc',
+        'amount': 500,
+        'checkoutPayload': '{"key":"rzp_test_abc","order_id":"order_abc","amount":50000}',
+      });
+
+      expect(result.checkoutUrl('http://10.0.2.2:5109'), isNull);
+    });
+  });
+
 }

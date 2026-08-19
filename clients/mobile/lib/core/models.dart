@@ -8,6 +8,8 @@
 /// acts on is calculated server-side against the ledger; the app only ever renders what it is told.
 library;
 
+import 'dart:convert';
+
 double _money(Object? value) => (value as num?)?.toDouble() ?? 0;
 
 DateTime? _dateOrNull(Object? value) =>
@@ -389,8 +391,31 @@ class StartPaymentResult {
   final String providerOrderId;
   final double amount;
 
-  /// What the gateway needs to open its checkout. For the sandbox this is a URL to open.
+  /// What the selected gateway needs to open its checkout sheet: SDK options for Razorpay, a path
+  /// for the sandbox. An envelope, never a bare URL — see [checkoutUrl].
   final String checkoutPayload;
+
+  /// The gateway's hosted page, or null when this gateway expects its own SDK instead.
+  ///
+  /// [apiBaseUrl] is needed because the gateway returns a path relative to its own host, which for
+  /// the sandbox is the API itself. Treating [checkoutPayload] as a link directly is the obvious
+  /// mistake and fails at launch with nothing useful to show the user.
+  String? checkoutUrl(String apiBaseUrl) {
+    final Object? decoded;
+
+    try {
+      decoded = jsonDecode(checkoutPayload);
+    } on FormatException {
+      return null;
+    }
+
+    if (decoded is! Map) return null;
+
+    final url = decoded['checkout_url'];
+    if (url is! String || url.isEmpty) return null;
+
+    return url.startsWith('http') ? url : '$apiBaseUrl$url';
+  }
 }
 
 class PaymentOrderView {

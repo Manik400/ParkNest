@@ -68,10 +68,21 @@ class _WalletScreenState extends State<WalletScreen> {
     try {
       final order = await api.startPayment(amount);
 
+      final checkoutUrl = order.checkoutUrl(AppConfig.apiBaseUrl);
+
+      if (checkoutUrl == null) {
+        if (mounted) {
+          showError(context, 'This gateway has no hosted checkout page to open.');
+        }
+        return;
+      }
+
       // The checkout goes to the system browser rather than an in-app webview, so the user can see
       // the address they are handing card details to. That is worth more than a seamless frame.
-      final uri = Uri.parse(order.checkoutPayload);
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      final launched = await launchUrl(
+        Uri.parse(checkoutUrl),
+        mode: LaunchMode.externalApplication,
+      );
 
       if (!launched) {
         if (mounted) showError(context, 'Could not open the checkout page.');
