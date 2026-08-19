@@ -54,12 +54,17 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [ ] Razorpay integration exercised for real. The code is written and unit-tested, but it has
       never talked to Razorpay's API — the sandbox proves the shape, not their particular JSON.
       The escrow/aggregator arrangement itself is still unestablished.
-- [ ] Flutter app: renter + host, role-based views
+- [x] Flutter app: renter + host in one app. Sign-in, find a space, quote and book, run the
+      session, wallet with credit purchase, vehicles, hosting, disputes. Device location and a
+      map are the notable absences — the search screen takes coordinates for now.
 - [x] Angular admin panel: pricing bands, disputes and payouts all present
 
 ### What is actually left in Phase 0
 
-- The Flutter renter app, which is the only untouched surface.
+- Device location and a map in the Flutter app, so finding a space does not mean typing
+  coordinates. Wants the permission flow first.
+- Listing a space from the phone. Hosting is read-only in the app; creating a listing needs a map
+  to place the pin and photo upload, and is done in the web console.
 - Razorpay against the live API, which needs credentials and an escrow arrangement that does not
   exist yet. Neither is a code problem.
 - The two open questions below, which are product decisions and cannot be resolved by writing

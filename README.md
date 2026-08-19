@@ -10,9 +10,10 @@ backlog are in [docs/](docs/README.md).
 ## Status
 
 Phase 0. The credit ledger, pricing rules engine, booking lifecycle, authentication, the credit
-purchase flow, disputes and payouts are implemented and tested, and the Angular admin console runs
-against all of them. What is left is the Flutter renter app, and Razorpay against the live API —
-which needs credentials and an escrow arrangement rather than more code.
+purchase flow, disputes and payouts are implemented and tested; the Angular admin console and the
+Flutter app both run against them. What is left is device location and a map in the app, and
+Razorpay against the live API — which needs credentials and an escrow arrangement rather than
+more code.
 
 | Area | State |
 |---|---|
@@ -29,7 +30,7 @@ which needs credentials and an escrow arrangement rather than more code.
 | Payouts | Cash-out, plus recording the transfer paid or failed — failure refunds the host |
 | Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, disputes, payouts, pricing bands |
 | RabbitMQ, SignalR | Not started (Phase 1) |
-| Flutter renter app | Not started |
+| Flutter renter + host app | Sign-in, search, quote, book, session, wallet, vehicles, hosting, disputes |
 
 ## Layout
 
@@ -44,6 +45,7 @@ tests/
   ParkNest.IntegrationTests/ Geo-search against a real PostGIS. Skips when there is no database.
 clients/
   admin/                    Angular 18 admin and host console.
+  mobile/                   Flutter renter and host app.
 docs/                       Spec, ADRs, work log, backlog.
 ```
 
@@ -113,6 +115,34 @@ loop, use a different number rather than waiting, or raise `Auth:OtpMaxRequestsP
 
 To reach the pricing screen you need the admin role: add your number to `Auth:AdminPhones` in
 `src/ParkNest.Api/appsettings.json` before first sign-in.
+
+### Mobile app
+
+```bash
+cd clients/mobile
+flutter pub get
+flutter run                          # pick a device; Chrome works without an emulator
+```
+
+Needs the API running on the **http** profile (`http://localhost:5109`), not https — a mobile
+client correctly refuses the self-signed certificate, and teaching it not to is a habit that
+escapes into release builds. Debug builds carry a network security config scoped to loopback so
+cleartext works there and nowhere else.
+
+The base URL defaults per platform, because `localhost` inside an Android emulator is the emulator.
+For a real handset, point it at your machine:
+
+```bash
+flutter run --dart-define=PARKNEST_API_BASE_URL=http://192.168.1.20:5109
+```
+
+Sign in with any number; outside Production the code comes back in the response and the screen
+fills it in.
+
+```bash
+flutter test                         # 15 tests
+flutter analyze
+```
 
 ## Buying credits
 
