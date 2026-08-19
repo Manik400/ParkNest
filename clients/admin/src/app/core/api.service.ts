@@ -12,6 +12,9 @@ import {
   BookingStatus,
   BookingSummary,
   CityPricingConfig,
+  Dispute,
+  Payout,
+  PayoutStatus,
   LedgerEntrySummary,
   ListingDetail,
   ListingSummary,
@@ -199,5 +202,68 @@ export class ApiService {
 
   upsertBand(request: UpsertBandRequest): Observable<CityPricingConfig> {
     return this.http.put<CityPricingConfig>(`${this.base}/api/admin/pricing`, request);
+  }
+
+  // --- Disputes -------------------------------------------------------------
+
+  myDisputes(onlyOpen = false): Observable<Dispute[]> {
+    return this.http.get<Dispute[]>(`${this.base}/api/disputes/me`, {
+      params: new HttpParams().set('onlyOpen', onlyOpen),
+    });
+  }
+
+  raiseDispute(bookingId: string, reason: string): Observable<Dispute> {
+    return this.http.post<Dispute>(`${this.base}/api/disputes`, { bookingId, reason });
+  }
+
+  // --- Admin: disputes ------------------------------------------------------
+
+  adminDisputes(onlyOpen = true): Observable<Dispute[]> {
+    return this.http.get<Dispute[]>(`${this.base}/api/admin/disputes`, {
+      params: new HttpParams().set('onlyOpen', onlyOpen),
+    });
+  }
+
+  reviewDispute(disputeId: string): Observable<Dispute> {
+    return this.http.post<Dispute>(`${this.base}/api/admin/disputes/${disputeId}/review`, {});
+  }
+
+  /** Upholds the dispute. Any refund is posted as a new compensating transaction. */
+  resolveDispute(
+    disputeId: string,
+    resolution: string,
+    refundToRenter: number,
+    chargedToPlatform: boolean,
+  ): Observable<Dispute> {
+    return this.http.post<Dispute>(`${this.base}/api/admin/disputes/${disputeId}/resolve`, {
+      resolution,
+      refundToRenter,
+      chargedToPlatform,
+    });
+  }
+
+  rejectDispute(disputeId: string, resolution: string): Observable<Dispute> {
+    return this.http.post<Dispute>(`${this.base}/api/admin/disputes/${disputeId}/reject`, {
+      resolution,
+    });
+  }
+
+  // --- Admin: payouts -------------------------------------------------------
+
+  payouts(status?: PayoutStatus): Observable<Payout[]> {
+    return this.http.get<Payout[]>(`${this.base}/api/admin/payouts`, {
+      params: status ? new HttpParams().set('status', status) : undefined,
+    });
+  }
+
+  completePayout(payoutId: string, providerReference: string | null): Observable<Payout> {
+    return this.http.post<Payout>(`${this.base}/api/admin/payouts/${payoutId}/complete`, {
+      providerReference,
+    });
+  }
+
+  /** Records a rejected transfer. The credits go back to the host via a compensating Refund. */
+  failPayout(payoutId: string, reason: string): Observable<Payout> {
+    return this.http.post<Payout>(`${this.base}/api/admin/payouts/${payoutId}/fail`, { reason });
   }
 }

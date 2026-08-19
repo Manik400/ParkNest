@@ -25,16 +25,26 @@ export class StatusPillComponent {
       case 'Completed':
       case 'Published':
       case 'Verified':
+      case 'Paid':
+      case 'Resolved':
         return 'pill--good';
       case 'InViolation':
       case 'Disputed':
       case 'Delisted':
+      case 'Failed':
         return 'pill--bad';
       case 'Active':
       case 'Held':
       case 'Paused':
       case 'Draft':
+      case 'Open':
+      case 'UnderReview':
+      case 'Requested':
+      case 'Processing':
         return 'pill--warn';
+      // Rejected is a decision, not a fault: the dispute was heard and did not stand.
+      case 'Rejected':
+        return '';
       default:
         return '';
     }

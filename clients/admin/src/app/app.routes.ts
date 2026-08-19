@@ -66,6 +66,19 @@ export const routes: Routes = [
         title: 'Wallet · ParkNest',
       },
       {
+        path: 'disputes',
+        loadComponent: () =>
+          import('./features/disputes/disputes.component').then((m) => m.DisputesComponent),
+        title: 'Disputes · ParkNest',
+      },
+      {
+        path: 'payouts',
+        canActivate: [adminGuard],
+        loadComponent: () =>
+          import('./features/payouts/payouts.component').then((m) => m.PayoutsComponent),
+        title: 'Payouts · ParkNest',
+      },
+      {
         path: 'pricing',
         canActivate: [adminGuard],
         loadComponent: () =>

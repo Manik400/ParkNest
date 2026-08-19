@@ -240,3 +240,43 @@ export const DAY_NAMES = [
   'Friday',
   'Saturday',
 ] as const;
+
+export type DisputeStatus = 'Open' | 'UnderReview' | 'Resolved' | 'Rejected';
+
+export interface DisputeEvidence {
+  id: string;
+  url: string;
+  note: string | null;
+}
+
+export interface Dispute {
+  disputeId: string;
+  bookingId: string;
+  raisedByUserId: string;
+  renterId: string;
+  hostId: string;
+  reason: string;
+  status: DisputeStatus;
+  resolution: string | null;
+  /** Credits actually moved when the dispute was upheld. Null when it was settled without money. */
+  adjustmentAmount: number | null;
+  adjustmentTransactionId: string | null;
+  evidence: DisputeEvidence[];
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export type PayoutStatus = 'Requested' | 'Processing' | 'Paid' | 'Failed';
+
+export interface Payout {
+  payoutId: string;
+  hostId: string;
+  hostPhone: string;
+  hostName: string;
+  amount: number;
+  status: PayoutStatus;
+  providerReference: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}

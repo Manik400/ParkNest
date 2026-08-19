@@ -1,5 +1,6 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { Component, Input, OnInit, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
@@ -9,7 +10,7 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
 @Component({
   selector: 'app-booking-detail',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, RouterLink, StatusPillComponent],
+  imports: [CurrencyPipe, DatePipe, RouterLink, StatusPillComponent, FormsModule],
   template: `
     <div class="stack">
       <a routerLink="/bookings">← Back to bookings</a>
@@ -127,6 +128,46 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
           </dl>
         </section>
 
+        <!-- Only once something has actually happened: a booking still in Held has nothing to
+             dispute and should be cancelled instead, which is what the API says too. -->
+        @if (booking.summary.status !== 'Held' && booking.summary.status !== 'Cancelled') {
+          <section class="card stack">
+            <h2>Something wrong?</h2>
+
+            @if (disputeRaised()) {
+              <div class="banner banner--info" role="status">
+                Dispute raised. You can follow it under
+                <a routerLink="/disputes">My disputes</a>.
+              </div>
+            } @else {
+              <p class="muted">
+                Raise a dispute and an operator will review it. Any refund is posted as a new
+                transaction — nothing on this page is rewritten.
+              </p>
+
+              <div>
+                <label for="disputeReason">What went wrong</label>
+                <textarea
+                  id="disputeReason"
+                  name="disputeReason"
+                  rows="3"
+                  [(ngModel)]="disputeReason"
+                ></textarea>
+              </div>
+
+              <div class="row actions">
+                <button
+                  type="button"
+                  [disabled]="busy() || !disputeReason.trim()"
+                  (click)="raiseDispute()"
+                >
+                  Raise a dispute
+                </button>
+              </div>
+            }
+          </section>
+        }
+
         <section class="card stack">
           <div>
             <h2>Ledger trail</h2>
@@ -223,8 +264,29 @@ export class BookingDetailComponent implements OnInit {
     releasedToRenter: number;
   } | null>(null);
 
+  readonly disputeRaised = signal(false);
+
+  disputeReason = '';
+
   ngOnInit(): void {
     this.load();
+  }
+
+  raiseDispute(): void {
+    this.busy.set(true);
+    this.error.set(null);
+
+    this.api.raiseDispute(this.bookingId, this.disputeReason.trim()).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.disputeRaised.set(true);
+        this.disputeReason = '';
+      },
+      error: (err: Error) => {
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
+    });
   }
 
   checkIn(): void {
