@@ -2,15 +2,14 @@
 
 *What we're solving, how we're solving it, and what actually exists in the repo today.*
 
-Last verified against the codebase on **2026-08-04** (branch `feat/availability-and-queries`,
-125 tests green).
+Last verified against the codebase on **2026-08-19** (branch `feat/hardening-and-completion`,
+169 tests green).
 
 This is the orientation document. Deeper detail lives in:
 
 - [PRD.md](PRD.md) — the full product spec
 - [ledger-model.md](ledger-model.md) — the money rules, in detail
-- [architecture.md](architecture.md) — layering (note: its "what is deliberately missing" section
-  is stale, auth has since landed)
+- [architecture.md](architecture.md) — layering and what is deliberately not built yet
 - [adr/](adr/) — the five decisions we don't want to re-litigate
 
 ---
@@ -76,8 +75,8 @@ and PRD §16. Get real legal advice before recharge and payout volume scales.
 ## 3. What we have built
 
 Phase 0 is functionally complete: ledger, pricing, booking lifecycle, listings with geo-search,
-authentication, availability enforcement, vehicles, payment-order scaffolding, and an Angular
-admin console running against all of it.
+authentication, availability enforcement, vehicles, credit purchase, disputes, payouts, and an
+Angular admin console running against all of it.
 
 | Area | State |
 |---|---|
@@ -86,14 +85,22 @@ admin console running against all of it.
 | Booking lifecycle + Tier 1 app-confirmed detection | Built |
 | Listings + PostGIS geo-search | Built |
 | Auth / identity (phone + OTP → JWT) | Built, every endpoint authorised, deny-by-default |
+| Sessions | Refresh tokens with rotation and replay detection; signing out revokes server-side |
+| Rate limiting | Per phone number in the service, per caller at the edge, on OTP and the webhook |
 | Availability windows and blackouts | Built, enforced at quote and at booking, per-space time zone |
 | Vehicles | Built |
 | Payments / credit purchase | Built. Sandbox gateway runs the whole flow locally; Razorpay wired for real money |
-| Angular admin/host console | Login, dashboard, listings, bookings, wallet, pricing bands |
+| Disputes | Built. Raise, review, uphold or reject; upholding posts a compensating transaction |
+| Payouts | Built. Cash-out request, and recording the transfer as paid or failed with a refund |
+| Angular admin/host console | Login, dashboard, listings, bookings, wallet, disputes, payouts, pricing bands |
 | RabbitMQ, SignalR, background overstay meter | Not started (Phase 1) |
 | Flutter renter app | Not started |
 
-**125 unit tests, all green, ~4s.** They run on in-memory SQLite, so CI needs no container.
+**169 unit tests, all green, ~4s.** They run on in-memory SQLite, so CI needs no container.
+
+A second suite covers geo-search against a real PostGIS. It skips unless `PARKNEST_TEST_CONNECTION`
+is set, and CI sets it in the job that already runs a PostGIS container — the geo path is the one
+thing SQLite fundamentally cannot exercise.
 
 ### Structure
 
@@ -105,6 +112,7 @@ src/
   ParkNest.Api/             Controllers and error→HTTP mapping. No business logic.
 tests/
   ParkNest.UnitTests/       Service-level tests on in-memory SQLite.
+  ParkNest.IntegrationTests/ Geo-search against a real PostGIS. Skips without a database.
 clients/
   admin/                    Angular 18 admin and host console.
 ```
@@ -445,7 +453,7 @@ dotnet run --project src/ParkNest.Api          # http://localhost:5109, Swagger 
 
 cd clients/admin && npm install && npm start   # http://localhost:4200
 
-dotnet test                          # 125 tests, no Docker required
+dotnet test tests/ParkNest.UnitTests  # 169 tests, no Docker required
 ```
 
 Payments run on the sandbox gateway in Development, so buying credits works out of the box: press

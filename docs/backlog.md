@@ -27,30 +27,43 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [x] **Auth & identity.** Phone + OTP login issuing JWTs; services take the acting user from the
       token and the user id is gone from request DTOs entirely. See
       [adr/0005](adr/0005-phone-otp-auth.md).
-- [ ] **OTP rate limiting.** The per-code attempt cap is in, but nothing limits how many codes a
-      caller can request — an attacker can burn SMS budget freely. Needed before launch.
-- [ ] **Refresh tokens and revocation.** Access tokens live 12 hours with no way to revoke one.
-- [ ] **Real SMS gateway.** Only the dev logging sender exists; startup deliberately fails in
-      Production until a real one is wired.
+- [x] **OTP rate limiting.** Per phone number in the service (resend cooldown plus a rolling
+      window cap), and per caller at the HTTP edge on request-otp, verify-otp and the payment
+      webhook. Two layers because they stop different attacks.
+- [x] **Refresh tokens and revocation.** Access tokens now live an hour; the session lives on a
+      stored refresh token that rotates on every use. Replaying a spent token revokes the whole
+      family descended from that sign-in. Signing out ends the session server-side.
+- [x] **Real SMS gateway.** MSG91, chosen for Indian DLT compliance. Startup still fails in
+      Production if no real sender is configured.
 - [x] **Recharge via aggregator webhook only.** Credits are now issued solely by a signature-verified
       webhook, for the amount recorded server-side at order time, under an idempotency key derived
       from the order id. See [adr/0004](adr/0004-credits-are-not-a-wallet.md).
 - [x] **A gateway that can actually be run.** `Payments:Provider=Sandbox` serves its own checkout
       page and signs its own callbacks, so the whole path works with no account and no network;
       refused in Production. See [adr/0006](adr/0006-sandbox-payment-gateway.md).
-- [ ] **Payment order expiry.** `PaymentOrderStatus.Cancelled` exists but nothing sets it, so an
-      abandoned checkout sits in `Created` forever. Wants a sweep.
-- [ ] Payout failure handling: compensating `Refund` transaction when the aggregator rejects
+- [x] **Payment order expiry.** A hosted service cancels orders left unpaid past the window. A
+      verified callback on a cancelled order still credits — expiry is our bookkeeping, not the
+      gateway's.
+- [x] Payout failure handling: a rejected transfer posts a compensating `Refund` returning the
+      credits to the host's earning balance, and admin endpoints record the outcome either way
 - [x] **Availability enforcement.** Windows and blackouts are now checked at booking time, in the
       space's own IANA time zone. Overnight windows and 24/7 spaces are handled.
-- [ ] Integration test against a real PostGIS container, covering geo-search (currently untested —
-      see [adr/0003](adr/0003-geo-search-without-nts.md))
-- [ ] Admin dispute console endpoints + resolution posting a compensating transaction
+- [x] Integration test against a real PostGIS container, covering geo-search: radius, ordering,
+      distance in metres, the filters, and that the generated `geog` column tracks an edit
+- [x] Admin dispute console endpoints + resolution posting a compensating transaction
 - [ ] Razorpay integration exercised for real. The code is written and unit-tested, but it has
       never talked to Razorpay's API — the sandbox proves the shape, not their particular JSON.
       The escrow/aggregator arrangement itself is still unestablished.
 - [ ] Flutter app: renter + host, role-based views
-- [ ] Angular admin panel: pricing bands done; disputes and payouts still missing
+- [x] Angular admin panel: pricing bands, disputes and payouts all present
+
+### What is actually left in Phase 0
+
+- The Flutter renter app, which is the only untouched surface.
+- Razorpay against the live API, which needs credentials and an escrow arrangement that does not
+  exist yet. Neither is a code problem.
+- The two open questions below, which are product decisions and cannot be resolved by writing
+  more code.
 
 ## Phase 1 — Trust and scale hardening
 
@@ -86,6 +99,5 @@ Phases follow PRD §18. Items are ordered within each phase.
   overstaying into another renter's booked slot. The credit system bills them, but the second
   renter still has nowhere to park. Needs a product decision, not just code.
 - **Cancellation policy.** Cancelling returns the full hold with no window or fee, so a host can
-  be left with a dead slot at zero compensation.
-- **Cancellation window.** Still no fee or cut-off, so a host can lose a slot at zero
-  compensation minutes before it starts.
+  lose a slot at zero compensation minutes before it starts. Needs a decision on the cut-off and
+  the fee before it can be built.

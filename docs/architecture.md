@@ -28,9 +28,10 @@ The dependency rule is one-directional: `Application` knows `Domain`, `Infrastru
 | Booking / Session | `Application.Bookings` | Booking & Session Service |
 | Pricing rules | `Application.Pricing` | Pricing Rules Service |
 | Listings + geo-search | `Application.Listings` | Listing & Geo-Search Service |
-| Identity | *not built* | Auth & Identity Service |
+| Identity | `Application.Auth` | Auth & Identity Service |
 | Notifications | *not built* | Notification Service |
-| Disputes | entities only | Admin / Dispute Service |
+| Payments | `Application.Payments` | Payment Service |
+| Disputes | `Application.Disputes` | Admin / Dispute Service |
 
 Only the wallet module may mutate a balance. Booking decides *timing*; wallet decides *money*.
 That split is deliberate — it keeps every credit movement in one auditable place and is why the
@@ -54,15 +55,22 @@ POST /api/bookings/{id}/end     → measure actual duration
   `PostgresSpaceSearchService` — see [adr/0003-geo-search-without-nts.md](adr/0003-geo-search-without-nts.md).
 - **Ledger invariants** are enforced twice: in `LedgerService`/`Wallet.Apply`, and again as
   Postgres `CHECK` constraints plus an append-only trigger.
+- **Sessions** live in `refresh_tokens`, hashed. A JWT cannot be withdrawn once signed, so access
+  tokens are short and the revocable half of the session is the row in that table. Rotation leaves
+  a chain: presenting an already-spent token revokes every token descended from the same sign-in.
 - **Money** is `decimal(18,2)` everywhere, rounded through `Money.Round` before it reaches the
   ledger so rounding can never unbalance a transaction.
 
 ## What is deliberately missing
 
-Authentication. Every endpoint is currently open — this is a scaffold, not a deployable service.
-Identity (PRD §14.1 suggests Duende or Keycloak) is the first thing that must land before this is
-exposed anywhere. `RenterId` and `HostId` arrive in request bodies today; they must come from the
-token instead.
+RabbitMQ eventing, SignalR live sessions, the background overstay meter, and the Flutter renter
+app. All Phase 1+ — see [backlog.md](backlog.md).
 
-Also absent: RabbitMQ eventing, SignalR live sessions, the payment aggregator integration, the
-background overstay meter, and both client apps. All Phase 1+ — see [backlog.md](backlog.md).
+The payment gateway is written and exercised end to end against the built-in sandbox, but has
+never talked to a live aggregator; the escrow arrangement behind it does not exist yet either.
+That is a commercial gap rather than a code one, and it is the last thing standing between the
+recharge path and real money.
+
+Authentication used to be listed here. It landed in `b48a596`: phone + OTP issuing JWTs,
+deny-by-default authorisation, and no user id anywhere in a request body — the acting user comes
+from the token. Refresh tokens and rate limiting followed.

@@ -9,20 +9,25 @@ backlog are in [docs/](docs/README.md).
 
 ## Status
 
-Phase 0. The credit ledger, pricing rules engine, booking lifecycle, authentication and the credit
-purchase flow are implemented and tested, and the Angular admin console runs against them. The
-Flutter renter app is not started.
+Phase 0. The credit ledger, pricing rules engine, booking lifecycle, authentication, the credit
+purchase flow, disputes and payouts are implemented and tested, and the Angular admin console runs
+against all of them. What is left is the Flutter renter app, and Razorpay against the live API —
+which needs credentials and an escrow arrangement rather than more code.
 
 | Area | State |
 |---|---|
-| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 125 tests green |
+| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 169 tests green |
 | Pricing rules engine (city bands, billing increments, overstay multiplier) | Implemented |
 | Booking lifecycle + Tier 1 app-confirmed detection | Implemented |
 | Listings + PostGIS geo-search | Implemented |
 | Auth / identity | Phone + OTP → JWT; every endpoint authorised |
+| Sessions | Refresh tokens, rotating, with replay detection; sign-out revokes server-side |
+| Rate limiting | Per phone number and per caller, on the OTP endpoints and the payment webhook |
 | Availability windows and blackouts | Enforced at booking, per-space time zone |
 | Credit purchase (payments) | Built. Sandbox gateway runs locally with no account; Razorpay wired for real money |
-| Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, pricing bands |
+| Disputes | Raise, review, uphold or reject; upholding posts a compensating transaction |
+| Payouts | Cash-out, plus recording the transfer paid or failed — failure refunds the host |
+| Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, disputes, payouts, pricing bands |
 | RabbitMQ, SignalR | Not started (Phase 1) |
 | Flutter renter app | Not started |
 
@@ -36,6 +41,7 @@ src/
   ParkNest.Api/             ASP.NET Core controllers and error mapping.
 tests/
   ParkNest.UnitTests/       Service-level tests against in-memory SQLite.
+  ParkNest.IntegrationTests/ Geo-search against a real PostGIS. Skips when there is no database.
 clients/
   admin/                    Angular 18 admin and host console.
 docs/                       Spec, ADRs, work log, backlog.
@@ -65,10 +71,21 @@ nothing in the API log to explain it.
 Swagger is at `/swagger` in Development; `/health` is always available.
 
 ```bash
-dotnet test                          # 125 tests, no Docker required
+dotnet test tests/ParkNest.UnitTests  # 169 tests, no Docker required
 ```
 
 Tests run on in-memory SQLite, so they need no container and finish in about a second.
+
+The integration suite covers geo-search, which SQLite fundamentally cannot — the generated
+`geography` column, the GiST index and the raw SQL only exist in Postgres. It skips unless pointed
+at a database:
+
+```bash
+PARKNEST_TEST_CONNECTION="Host=localhost;Port=5432;Database=parknest;Username=parknest;Password=parknest"   dotnet test tests/ParkNest.IntegrationTests
+```
+
+A plain `dotnet test` runs both; without that variable the integration tests report as skipped
+rather than passing silently.
 
 ### Admin console
 
@@ -85,8 +102,11 @@ fail unless you have accepted the API's self-signed certificate. Visit
 <https://localhost:7139/swagger> once and click through the browser warning.
 
 Needs the API running. Sign in with any phone number — outside Production the API returns the
-one-time code in the response and the login screen displays it, because no SMS gateway is wired
-yet. The first sign-in creates the account.
+one-time code in the response and the login screen displays it, because `Sms:Provider` defaults to
+`Log`. The first sign-in creates the account.
+
+Codes are rate limited: one a minute per number, five an hour. If you are testing sign-in in a
+loop, use a different number rather than waiting, or raise `Auth:OtpMaxRequestsPerWindow`.
 
 To reach the pricing screen you need the admin role: add your number to `Auth:AdminPhones` in
 `src/ParkNest.Api/appsettings.json` before first sign-in.
