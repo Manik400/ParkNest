@@ -42,6 +42,13 @@ public static class DependencyInjection
         AddSms(services, configuration, environment);
         AddPayments(services, configuration, environment);
 
+        // Only where orders can actually be created. With payments disabled the sweep would wake
+        // every five minutes to scan a table nothing writes to.
+        if (!(configuration.GetSection(PaymentOptions.SectionName).Get<PaymentOptions>() ?? new PaymentOptions()).IsDisabled)
+        {
+            services.AddHostedService<PaymentOrderExpirySweeper>();
+        }
+
         services.AddParkNestApplication();
 
         return services;

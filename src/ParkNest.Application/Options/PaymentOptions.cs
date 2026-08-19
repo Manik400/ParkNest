@@ -31,6 +31,16 @@ public sealed class PaymentOptions
     /// </summary>
     public string SandboxReturnUrl { get; set; } = "http://localhost:4200/wallet";
 
+    /// <summary>
+    /// How long an unpaid order stays open before the sweep cancels it. Comfortably longer than a
+    /// human takes to finish a checkout sheet, and longer again than a gateway takes to call back,
+    /// because expiring an order that is about to be paid produces a confusing pair of records.
+    /// </summary>
+    public int OrderExpiryMinutes { get; set; } = 30;
+
+    /// <summary>How often the sweep runs.</summary>
+    public int ExpirySweepIntervalMinutes { get; set; } = 5;
+
     public bool IsSandbox => string.Equals(Provider, "Sandbox", StringComparison.OrdinalIgnoreCase);
 
     public bool IsDisabled =>

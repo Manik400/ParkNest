@@ -158,6 +158,17 @@ public sealed class PaymentService : IPaymentService
             return new WebhookResult(true, "Already processed.");
         }
 
+        if (order.Status == PaymentOrderStatus.Cancelled)
+        {
+            // We gave up on this order; the payer did not. Expiry is our own bookkeeping and says
+            // nothing about whether money moved, so a verified callback still credits — refusing
+            // would take the money and hand back nothing. Logged, because it means the expiry
+            // window is shorter than what the gateway actually takes to confirm.
+            _logger.LogWarning(
+                "Payment order {OrderId} was expired locally but the gateway has now reported on it.",
+                order.Id);
+        }
+
         order.ProviderPaymentId = evt.ProviderPaymentId;
         order.CompletedAt = _clock.UtcNow;
 
@@ -183,6 +194,9 @@ public sealed class PaymentService : IPaymentService
 
         order.LedgerTransactionId = transaction?.Id;
         order.Status = PaymentOrderStatus.Paid;
+        // Clears the expiry note if the sweep had written one, so a paid order never carries a
+        // reason it failed.
+        order.FailureReason = null;
 
         await _db.SaveChangesAsync(cancellationToken);
 

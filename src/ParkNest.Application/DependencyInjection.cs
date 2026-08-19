@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddScoped<Queries.IParkNestQueries, Queries.ParkNestQueries>();
         services.AddScoped<Vehicles.IVehicleService, Vehicles.VehicleService>();
         services.AddScoped<Payments.IPaymentService, Payments.PaymentService>();
+        services.AddScoped<Payments.IPaymentOrderExpiry, Payments.PaymentOrderExpiry>();
 
         return services;
     }

@@ -3,6 +3,7 @@ using System.Text;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using ParkNest.Application.Options;
 using ParkNest.Application.Payments;
 using ParkNest.Domain.Common;
 using ParkNest.Domain.Payments;
@@ -21,6 +22,8 @@ public sealed class PaymentTests : IDisposable
     private readonly TestHarness _h = new();
     private readonly FakeGateway _gateway = new(Secret);
     private readonly IPaymentService _payments;
+    private readonly IPaymentOrderExpiry _expiry;
+    private readonly PaymentOptions _paymentOptions = new() { OrderExpiryMinutes = 30 };
 
     public PaymentTests()
     {
@@ -28,6 +31,11 @@ public sealed class PaymentTests : IDisposable
             _h.Db, _gateway, _h.Wallets, _h.CurrentUser, _h.Clock,
             Microsoft.Extensions.Options.Options.Create(_h.Options),
             NullLogger<PaymentService>.Instance);
+
+        _expiry = new PaymentOrderExpiry(
+            _h.Db, _h.Clock,
+            Microsoft.Extensions.Options.Options.Create(_paymentOptions),
+            NullLogger<PaymentOrderExpiry>.Instance);
     }
 
     public void Dispose() => _h.Dispose();
@@ -205,6 +213,87 @@ public sealed class PaymentTests : IDisposable
 
         await act.Should().ThrowAsync<UnauthorizedException>();
     }
+
+    [Fact]
+    public async Task An_order_left_unpaid_past_the_window_is_cancelled()
+    {
+        await _h.AddUserAsync(UserRole.Both);
+        var started = await _payments.StartAsync(500m);
+
+        _h.Clock.Advance(TimeSpan.FromMinutes(_paymentOptions.OrderExpiryMinutes + 1));
+        var expired = await _expiry.ExpireStaleOrdersAsync();
+
+        expired.Should().Be(1);
+        var order = await _h.Db.PaymentOrders.SingleAsync(o => o.Id == started.OrderId);
+        order.Status.Should().Be(PaymentOrderStatus.Cancelled);
+        order.CompletedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task An_order_still_inside_the_window_is_left_alone()
+    {
+        await _h.AddUserAsync(UserRole.Both);
+        var started = await _payments.StartAsync(500m);
+
+        _h.Clock.Advance(TimeSpan.FromMinutes(_paymentOptions.OrderExpiryMinutes - 1));
+        var expired = await _expiry.ExpireStaleOrdersAsync();
+
+        expired.Should().Be(0);
+        var order = await _h.Db.PaymentOrders.SingleAsync(o => o.Id == started.OrderId);
+        order.Status.Should().Be(PaymentOrderStatus.Created);
+    }
+
+    [Fact]
+    public async Task Expiry_never_touches_an_order_that_was_already_paid()
+    {
+        await _h.AddUserAsync(UserRole.Both);
+        var started = await _payments.StartAsync(500m);
+        var body = CapturedBody(started.ProviderOrderId);
+        await _payments.HandleWebhookAsync(body, Sign(body));
+
+        _h.Clock.Advance(TimeSpan.FromDays(1));
+        await _expiry.ExpireStaleOrdersAsync();
+
+        var order = await _h.Db.PaymentOrders.SingleAsync(o => o.Id == started.OrderId);
+        order.Status.Should().Be(PaymentOrderStatus.Paid);
+    }
+
+    [Fact]
+    public async Task A_payment_that_lands_after_expiry_still_credits()
+    {
+        // Expiry is our bookkeeping, not the gateway's. If the money moved, the credits are owed
+        // whatever we had already written down.
+        var user = await _h.AddUserAsync(UserRole.Both);
+        var started = await _payments.StartAsync(500m);
+
+        _h.Clock.Advance(TimeSpan.FromMinutes(_paymentOptions.OrderExpiryMinutes + 1));
+        await _expiry.ExpireStaleOrdersAsync();
+
+        var body = CapturedBody(started.ProviderOrderId);
+        var result = await _payments.HandleWebhookAsync(body, Sign(body));
+
+        result.Accepted.Should().BeTrue();
+        var wallet = await _h.Wallets.GetOrCreateWalletAsync(user.Id);
+        wallet.SpendableBalance.Should().Be(500m);
+
+        var order = await _h.Db.PaymentOrders.SingleAsync(o => o.Id == started.OrderId);
+        order.Status.Should().Be(PaymentOrderStatus.Paid);
+        order.FailureReason.Should().BeNull("a paid order must not carry the reason it expired");
+    }
+
+    [Fact]
+    public async Task Sweeping_twice_cancels_an_order_once()
+    {
+        await _h.AddUserAsync(UserRole.Both);
+        await _payments.StartAsync(500m);
+
+        _h.Clock.Advance(TimeSpan.FromMinutes(_paymentOptions.OrderExpiryMinutes + 1));
+        await _expiry.ExpireStaleOrdersAsync();
+        var second = await _expiry.ExpireStaleOrdersAsync();
+
+        second.Should().Be(0, "a second instance running the same sweep must find nothing to do");
+    }
+
 }
 
 /// <summary>
