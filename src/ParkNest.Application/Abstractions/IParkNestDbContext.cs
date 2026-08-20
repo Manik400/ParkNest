@@ -24,6 +24,7 @@ public interface IParkNestDbContext
     DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<ParkingSpace> ParkingSpaces { get; }
     DbSet<AvailabilityWindow> AvailabilityWindows { get; }
+    DbSet<SpacePhoto> SpacePhotos { get; }
     DbSet<AvailabilityBlackout> AvailabilityBlackouts { get; }
     DbSet<Booking> Bookings { get; }
     DbSet<Wallet> Wallets { get; }

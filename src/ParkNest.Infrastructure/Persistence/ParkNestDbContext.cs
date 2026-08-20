@@ -24,8 +24,8 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ParkingSpace> ParkingSpaces => Set<ParkingSpace>();
     public DbSet<SpaceVehicleSupport> SpaceVehicleSupports => Set<SpaceVehicleSupport>();
-    public DbSet<SpacePhoto> SpacePhotos => Set<SpacePhoto>();
     public DbSet<AvailabilityWindow> AvailabilityWindows => Set<AvailabilityWindow>();
+    public DbSet<SpacePhoto> SpacePhotos => Set<SpacePhoto>();
     public DbSet<AvailabilityBlackout> AvailabilityBlackouts => Set<AvailabilityBlackout>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<Wallet> Wallets => Set<Wallet>();

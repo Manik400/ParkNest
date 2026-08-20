@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ParkNest.Application;
 using ParkNest.Application.Abstractions;
 using ParkNest.Application.Auth;
@@ -10,6 +12,7 @@ using ParkNest.Application.Options;
 using ParkNest.Application.Payments;
 using ParkNest.Infrastructure.Auth;
 using ParkNest.Infrastructure.Payments;
+using ParkNest.Infrastructure.Storage;
 using ParkNest.Infrastructure.Persistence;
 
 namespace ParkNest.Infrastructure;
@@ -25,6 +28,7 @@ public static class DependencyInjection
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<SmsOptions>(configuration.GetSection(SmsOptions.SectionName));
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
+        services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
 
         ValidateAuthOptions(configuration, environment);
 
@@ -41,6 +45,7 @@ public static class DependencyInjection
 
         AddSms(services, configuration, environment);
         AddPayments(services, configuration, environment);
+        AddPhotoStorage(services, configuration, environment);
 
         // Only where orders can actually be created. With payments disabled the sweep would wake
         // every five minutes to scan a table nothing writes to.
@@ -121,6 +126,29 @@ public static class DependencyInjection
         // at startup and takes the entire API down, which is a far worse development experience
         // than the payment endpoints returning a clear "not configured".
         services.AddScoped<IPaymentGateway, UnconfiguredPaymentGateway>();
+    }
+
+    /// <summary>
+    /// Where listing photos go. Local disk is the default because it works on any machine with no
+    /// account, and it is honest about its limit: two API instances do not share a directory, so
+    /// this is the first thing to replace when the deployment stops being a single box.
+    /// </summary>
+    private static void AddPhotoStorage(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
+    {
+        var storage = configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions();
+
+        if (storage.IsLocal)
+        {
+            services.AddSingleton<IPhotoStorage>(sp => new LocalDiskPhotoStorage(
+                sp.GetRequiredService<IOptions<StorageOptions>>(),
+                environment.ContentRootPath,
+                sp.GetRequiredService<ILogger<LocalDiskPhotoStorage>>()));
+            return;
+        }
+
+        // Not a startup failure even in Production: a deployment may legitimately run without
+        // photos, and the endpoints say so plainly rather than the API refusing to boot.
+        services.AddSingleton<IPhotoStorage, UnconfiguredPhotoStorage>();
     }
 
     /// <summary>

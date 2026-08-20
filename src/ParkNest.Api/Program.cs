@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using ParkNest.Api;
@@ -169,6 +171,9 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+var storageOptions = builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>()
+    ?? new StorageOptions();
+
 var app = builder.Build();
 
 // Failures are mapped centrally so controllers stay free of try/catch and clients get a stable
@@ -221,6 +226,45 @@ if (!app.Environment.IsProduction())
 
 // Ahead of authentication: a flood should be shed before it costs us a signature validation.
 app.UseRateLimiter();
+
+// Listing photos, when they are kept on this box. Deliberately narrow:
+//
+//  - only the three extensions the upload path can produce, so anything else that ends up in the
+//    directory is a 404 rather than something a browser will try to interpret;
+//  - nosniff, so a file cannot be re-interpreted as script on the strength of its content;
+//  - attachment-free but non-executing content types only, because these are served from the API's
+//    own origin and user-supplied content served as active content is how stored XSS happens.
+if (!storageOptions.IsDisabled)
+{
+    var mediaRoot = Path.IsPathRooted(storageOptions.LocalRoot)
+        ? storageOptions.LocalRoot
+        : Path.Combine(app.Environment.ContentRootPath, storageOptions.LocalRoot);
+
+    Directory.CreateDirectory(mediaRoot);
+
+    var contentTypes = new FileExtensionContentTypeProvider(new Dictionary<string, string>
+    {
+        [".jpg"] = "image/jpeg",
+        [".png"] = "image/png",
+        [".webp"] = "image/webp",
+    });
+
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(mediaRoot),
+        RequestPath = '/' + storageOptions.PublicPath.Trim('/'),
+        ContentTypeProvider = contentTypes,
+        // Anything without one of the three mappings above is simply not served.
+        ServeUnknownFileTypes = false,
+        OnPrepareResponse = context =>
+        {
+            context.Context.Response.Headers.XContentTypeOptions = "nosniff";
+            // Photos are immutable once written — the filename is a fresh GUID every upload — so
+            // they can be cached hard.
+            context.Context.Response.Headers.CacheControl = "public,max-age=31536000,immutable";
+        },
+    });
+}
 
 app.UseAuthentication();
 app.UseAuthorization();
