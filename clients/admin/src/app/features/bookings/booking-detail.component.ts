@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
-import { BookingDetail } from '../../core/models';
+import { BookingDetail, CancellationTerms } from '../../core/models';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 
 @Component({
@@ -40,7 +40,19 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
                 I have parked
               </button>
               <button type="button" [disabled]="busy()" (click)="cancel()">Cancel booking</button>
-              <span class="muted small">Cancelling returns the whole hold.</span>
+              @if (cancellation(); as terms) {
+                <span class="muted small">
+                  @if (terms.isFree) {
+                    Cancelling now returns the whole hold.
+                  } @else {
+                    <!-- The fee is a server-side policy; showing the figure it will actually
+                         charge beats restating a rule that can change without a deploy. -->
+                    Cancelling now costs
+                    {{ terms.fee | currency: 'INR' : 'symbol' : '1.2-2' }} — the host cannot re-let
+                    the slot this close to the start.
+                  }
+                </span>
+              }
             } @else {
               <button class="primary" type="button" [disabled]="busy()" (click)="checkOut()">
                 I am leaving
@@ -268,6 +280,8 @@ export class BookingDetailComponent implements OnInit {
 
   disputeReason = '';
 
+  readonly cancellation = signal<CancellationTerms | null>(null);
+
   ngOnInit(): void {
     this.load();
   }
@@ -335,6 +349,18 @@ export class BookingDetailComponent implements OnInit {
       next: (detail) => {
         this.detail.set(detail);
         this.loading.set(false);
+
+        // Only a booking that has not started can be cancelled, so the terms are only worth
+        // fetching for one — and a 400 from asking about any other would surface as an error
+        // banner on a page where nothing is wrong.
+        if (detail.summary.status === 'Held') {
+          this.api.cancellationTerms(this.bookingId).subscribe({
+            next: (terms) => this.cancellation.set(terms),
+            // Silent: the page is fine without it, and the confirmation is advisory. The charge
+            // itself is decided server-side when Cancel is actually pressed.
+            error: () => this.cancellation.set(null),
+          });
+        }
       },
       error: (err: Error) => {
         this.error.set(err.message);

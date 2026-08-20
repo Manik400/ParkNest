@@ -593,3 +593,34 @@ class AvailabilityWindowRequest {
         'endTime': _hhmmss(endTime),
       };
 }
+
+/// What cancelling a booking would cost right now.
+///
+/// Fetched rather than computed on the handset: the policy is configuration on the server, and a
+/// second copy here would go stale the moment ops changed it — while confidently telling the user
+/// a number that is not what they will be charged.
+class CancellationTerms {
+  const CancellationTerms({
+    required this.holdAmount,
+    required this.fee,
+    required this.refund,
+    required this.isFree,
+    required this.freeUntil,
+  });
+
+  factory CancellationTerms.fromJson(Map<String, dynamic> json) => CancellationTerms(
+        holdAmount: _money(json['holdAmount']),
+        fee: _money(json['fee']),
+        refund: _money(json['refund']),
+        isFree: json['isFree'] as bool,
+        freeUntil: _date(json['freeUntil']),
+      );
+
+  final double holdAmount;
+  final double fee;
+  final double refund;
+  final bool isFree;
+
+  /// After this moment cancelling starts costing something.
+  final DateTime freeUntil;
+}

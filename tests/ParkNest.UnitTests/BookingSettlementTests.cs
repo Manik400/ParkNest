@@ -168,18 +168,100 @@ public sealed class BookingSettlementTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancelling_before_the_session_starts_returns_the_whole_hold()
+    public async Task Cancelling_with_plenty_of_notice_returns_the_whole_hold()
     {
         var (renterId, _, spaceId, vehicleId) = await SetupAsync();
+
+        // Booked well ahead, cancelled straight away: the host has a day to re-let the slot, so
+        // there is nothing to compensate.
+        var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
+            spaceId, vehicleId, TestHarness.Origin.AddDays(1), 120, "bk-1"));
+
+        var outcome = await _h.Bookings.CancelBookingAsync(booking.Id);
+
+        outcome.Fee.Should().Be(0m);
+
+        var wallet = await _h.Wallets.GetOrCreateWalletAsync(renterId);
+        wallet.SpendableBalance.Should().Be(1000m);
+        wallet.HeldBalance.Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Cancelling_too_late_compensates_the_host_out_of_the_hold()
+    {
+        var (renterId, hostId, spaceId, vehicleId) = await SetupAsync();
+
+        // Starting now, so the host has no notice at all and cannot re-let the slot.
+        var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
+            spaceId, vehicleId, TestHarness.Origin, 120, "bk-1"));
+
+        var outcome = await _h.Bookings.CancelBookingAsync(booking.Id);
+
+        // 120 minutes at 60/hr is a 120 hold; half of it is forfeited.
+        outcome.Fee.Should().Be(60m);
+        outcome.Refund.Should().Be(60m);
+
+        var renter = await _h.Wallets.GetOrCreateWalletAsync(renterId);
+        renter.SpendableBalance.Should().Be(940m);
+        renter.HeldBalance.Should().Be(0m);
+
+        // The fee settles like any session would: the host receives it less commission.
+        var host = await _h.Wallets.GetOrCreateWalletAsync(hostId);
+        host.EarningBalance.Should().Be(54m);
+    }
+
+    [Fact]
+    public async Task A_late_cancellation_still_reconciles_against_the_ledger()
+    {
+        var (renterId, hostId, spaceId, vehicleId) = await SetupAsync();
 
         var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
             spaceId, vehicleId, TestHarness.Origin, 120, "bk-1"));
 
         await _h.Bookings.CancelBookingAsync(booking.Id);
 
+        foreach (var userId in new[] { renterId, hostId })
+        {
+            var wallet = await _h.Wallets.GetOrCreateWalletAsync(userId);
+            var replayed = await _h.Ledger.RecomputeFromEntriesAsync(wallet.Id);
+
+            replayed.Spendable.Should().Be(wallet.SpendableBalance);
+            replayed.Held.Should().Be(wallet.HeldBalance);
+            replayed.Earning.Should().Be(wallet.EarningBalance);
+        }
+    }
+
+    [Fact]
+    public async Task The_cancellation_preview_says_what_it_will_cost_without_charging_anything()
+    {
+        var (renterId, _, spaceId, vehicleId) = await SetupAsync();
+
+        var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
+            spaceId, vehicleId, TestHarness.Origin, 120, "bk-1"));
+
+        var terms = await _h.Bookings.PreviewCancellationAsync(booking.Id);
+
+        terms.IsFree.Should().BeFalse();
+        terms.Fee.Should().Be(60m);
+        terms.Refund.Should().Be(60m);
+
         var wallet = await _h.Wallets.GetOrCreateWalletAsync(renterId);
-        wallet.SpendableBalance.Should().Be(1000m);
-        wallet.HeldBalance.Should().Be(0m);
+        wallet.HeldBalance.Should().Be(120m, "previewing must not move anything");
+    }
+
+    [Fact]
+    public async Task The_free_window_is_measured_against_the_booked_start_not_when_it_was_booked()
+    {
+        // A booking made a minute ago for a slot starting in five minutes is exactly as unhelpful
+        // to the host as one made last week. Notice is what matters, not booking age.
+        var (_, _, spaceId, vehicleId) = await SetupAsync();
+
+        var booking = await _h.Bookings.CreateBookingAsync(new CreateBookingRequest(
+            spaceId, vehicleId, TestHarness.Origin.AddMinutes(5), 120, "bk-1"));
+
+        var terms = await _h.Bookings.PreviewCancellationAsync(booking.Id);
+
+        terms.IsFree.Should().BeFalse();
     }
 
     [Fact]

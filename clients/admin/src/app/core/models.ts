@@ -280,3 +280,13 @@ export interface Payout {
   createdAt: string;
   completedAt: string | null;
 }
+
+/** What cancelling a booking would cost right now. The policy lives on the server. */
+export interface CancellationTerms {
+  holdAmount: number;
+  fee: number;
+  refund: number;
+  isFree: boolean;
+  /** After this moment cancelling starts costing something. */
+  freeUntil: string;
+}

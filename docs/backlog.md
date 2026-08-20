@@ -67,12 +67,9 @@ Phases follow PRD §18. Items are ordered within each phase.
 
 ### What is actually left in Phase 0
 
-- Photo upload for a listing. There is no blob store and no `/api/listings/{id}/photos` endpoint;
-  `SpacePhoto` exists as a table only. Wants a storage decision before any code.
 - Razorpay against the live API, which needs credentials and an escrow arrangement that does not
   exist yet. Neither is a code problem.
-- The two open questions below, which are product decisions and cannot be resolved by writing
-  more code.
+- Razorpay is the only remaining item, and it is not a code problem.
 
 ## Phase 1 — Trust and scale hardening
 
@@ -104,9 +101,15 @@ Phases follow PRD §18. Items are ordered within each phase.
 
 ## Open questions
 
-- **Overstay when the next booking is already due.** Nothing currently prevents a renter
-  overstaying into another renter's booked slot. The credit system bills them, but the second
-  renter still has nowhere to park. Needs a product decision, not just code.
-- **Cancellation policy.** Cancelling returns the full hold with no window or fee, so a host can
-  lose a slot at zero compensation minutes before it starts. Needs a decision on the cut-off and
-  the fee before it can be built.
+- **Overstay when the next booking is already due.** Nothing prevents a renter overstaying into
+  another renter's booked slot. The credit system bills them, but the second renter still has
+  nowhere to park. Needs a product decision — refund and re-house, or let the second renter take
+  the loss and compensate them — before it is worth writing.
+
+## Decided, and configurable
+
+- **Cancellation policy.** Free up to `Platform:FreeCancellationMinutes` before the booked start;
+  inside that window the renter forfeits `Platform:LateCancellationFeeRate` of the hold, which
+  settles to the host exactly as a session would. Defaults are an hour and half the hold, chosen
+  as a starting position rather than from evidence — the whole point of it being configuration is
+  that ops can move it once there is some. Zero restores the old behaviour.

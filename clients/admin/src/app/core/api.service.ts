@@ -10,6 +10,7 @@ import {
   NearbySpace,
   Vehicle,
   BookingStatus,
+  CancellationTerms,
   BookingSummary,
   CityPricingConfig,
   Dispute,
@@ -137,6 +138,13 @@ export class ApiService {
       platformFee: number;
       shortfall: number;
     }>(`${this.base}/api/bookings/${bookingId}/end`, { method: 'AppConfirmed' });
+  }
+
+  /** What cancelling would cost, without cancelling. */
+  cancellationTerms(bookingId: string): Observable<CancellationTerms> {
+    return this.http.get<CancellationTerms>(
+      `${this.base}/api/bookings/${bookingId}/cancellation`,
+    );
   }
 
   cancelBooking(bookingId: string): Observable<unknown> {

@@ -177,6 +177,10 @@ class Api {
         _map(await client.post('/api/bookings/$bookingId/end', body: {'method': 'AppConfirmed'})),
       );
 
+  /// What cancelling would cost, without cancelling.
+  Future<CancellationTerms> cancellationTerms(String bookingId) async =>
+      CancellationTerms.fromJson(_map(await client.get('/api/bookings/$bookingId/cancellation')));
+
   Future<void> cancelBooking(String bookingId) =>
       client.post('/api/bookings/$bookingId/cancel', body: {});
 

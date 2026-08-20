@@ -9,10 +9,11 @@ backlog are in [docs/](docs/README.md).
 
 ## Status
 
-Phase 0. The credit ledger, pricing rules engine, booking lifecycle, authentication, the credit
-purchase flow, disputes and payouts are implemented and tested; the Angular admin console and the
-Flutter app both run against them. What is left is photo upload for listings, and Razorpay against
-the live API — which needs credentials and an escrow arrangement rather than more code.
+Phase 0 is complete in code. The credit ledger, pricing rules engine, booking lifecycle,
+authentication, credit purchase, disputes, payouts, listing photos and the cancellation policy are
+all implemented and tested; the Angular admin console and the Flutter app both run against them.
+What remains is Razorpay against the live API, which needs credentials and an escrow arrangement
+rather than more code.
 
 | Area | State |
 |---|---|
@@ -27,6 +28,8 @@ the live API — which needs credentials and an escrow arrangement rather than m
 | Credit purchase (payments) | Built. Sandbox gateway runs locally with no account; Razorpay wired for real money |
 | Disputes | Raise, review, uphold or reject; upholding posts a compensating transaction |
 | Payouts | Cash-out, plus recording the transfer paid or failed — failure refunds the host |
+| Listing photos | Upload, list, delete. Local disk by default, behind a storage interface |
+| Cancellation policy | Free outside a configurable window; inside it the host is compensated |
 | Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, disputes, payouts, pricing bands |
 | RabbitMQ, SignalR | Not started (Phase 1) |
 | Flutter renter + host app | Sign-in, map search from your location, quote, book, session, wallet, vehicles, listing a space, disputes |
@@ -169,8 +172,8 @@ changes nothing but the edge of the system. See
 ## Configuration
 
 Platform economics are configuration, never constants — see the `Platform` section of
-`src/ParkNest.Api/appsettings.json` for commission rate, billing increment, grace period and the
-cash-out floor. City price bands are database rows managed through `/api/admin/pricing`.
+`src/ParkNest.Api/appsettings.json` for commission rate, billing increment, grace period, the
+cash-out floor, and the cancellation window and fee. City price bands are database rows managed through `/api/admin/pricing`.
 
 ## A note on compliance
 

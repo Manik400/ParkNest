@@ -28,9 +28,28 @@ public interface IBookingService
     /// </summary>
     Task<SessionOutcome> EndSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Cancels a booking that never started and returns the full hold.</summary>
-    Task<Booking> CancelBookingAsync(Guid bookingId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// What cancelling right now would cost, without cancelling. Lets the confirmation say the
+    /// figure rather than the app guessing at the policy.
+    /// </summary>
+    Task<CancellationTerms> PreviewCancellationAsync(Guid bookingId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cancels a booking that never started. Returns the hold, less a fee if it is late enough to
+    /// leave the host with a slot they cannot re-let.
+    /// </summary>
+    Task<CancellationOutcome> CancelBookingAsync(Guid bookingId, CancellationToken cancellationToken = default);
 }
+
+/// <param name="FreeUntil">After this moment a cancellation starts costing something.</param>
+public sealed record CancellationTerms(
+    decimal HoldAmount,
+    decimal Fee,
+    decimal Refund,
+    bool IsFree,
+    DateTimeOffset FreeUntil);
+
+public sealed record CancellationOutcome(Booking Booking, decimal Fee, decimal Refund);
 
 /// <summary>
 /// Note the absence of a renter id: the renter is always the authenticated caller. Accepting one

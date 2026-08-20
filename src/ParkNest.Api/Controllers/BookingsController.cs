@@ -95,13 +95,29 @@ public sealed class BookingsController : ControllerBase
             outcome.Shortfall));
     }
 
+    /// <summary>
+    /// What cancelling now would cost. The client asks before showing a confirmation, so the
+    /// figure comes from the same rule that will be applied rather than a copy of the policy.
+    /// </summary>
+    [HttpGet("{bookingId:guid}/cancellation")]
+    public async Task<ActionResult<CancellationTerms>> CancellationTerms(
+        Guid bookingId,
+        CancellationToken cancellationToken) =>
+        Ok(await _bookings.PreviewCancellationAsync(bookingId, cancellationToken));
+
     [HttpPost("{bookingId:guid}/cancel")]
-    public async Task<ActionResult<BookingResponse>> Cancel(Guid bookingId, CancellationToken cancellationToken)
+    public async Task<ActionResult<CancellationResponse>> Cancel(Guid bookingId, CancellationToken cancellationToken)
     {
-        var booking = await _bookings.CancelBookingAsync(bookingId, cancellationToken);
-        return Ok(BookingResponse.From(booking));
+        var outcome = await _bookings.CancelBookingAsync(bookingId, cancellationToken);
+
+        return Ok(new CancellationResponse(
+            BookingResponse.From(outcome.Booking),
+            outcome.Fee,
+            outcome.Refund));
     }
 }
+
+public sealed record CancellationResponse(BookingResponse Booking, decimal Fee, decimal Refund);
 
 public sealed record SessionEventRequest(DetectionMethod Method = DetectionMethod.AppConfirmed, DateTimeOffset? At = null);
 

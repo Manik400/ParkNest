@@ -55,20 +55,46 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
       });
 
   Future<void> _cancel() async {
+    final api = Services.of(context);
+
+    // Asked rather than assumed: cancelling late costs a fee, and the size of it is a server-side
+    // policy. Telling the user "you get everything back" and then taking half would be the worst
+    // possible way for them to learn the rule.
+    final CancellationTerms terms;
+
+    try {
+      terms = await api.cancellationTerms(widget.bookingId);
+    } on ApiException catch (error) {
+      if (mounted) showError(context, error);
+      return;
+    }
+
+    if (!mounted) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Cancel this booking?'),
-        content: const Text('The whole hold goes back to your spendable balance.'),
+        content: Text(
+          terms.isFree
+              ? 'The whole hold, ${formatCredits(terms.refund)}, goes back to your spendable '
+                  'balance.'
+              : 'Cancelling now costs ${formatCredits(terms.fee)} — the host loses a slot they '
+                  'cannot re-let this close to the start. '
+                  '${formatCredits(terms.refund)} comes back to you.',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep it')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Cancel booking')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cancel booking'),
+          ),
         ],
       ),
     );
 
     if (confirmed ?? false) {
-      await _run(() => Services.of(context).cancelBooking(widget.bookingId));
+      await _run(() => api.cancelBooking(widget.bookingId));
     }
   }
 

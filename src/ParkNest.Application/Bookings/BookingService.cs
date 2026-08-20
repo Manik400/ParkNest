@@ -256,7 +256,17 @@ public sealed class BookingService : IBookingService
             shortfall);
     }
 
-    public async Task<Booking> CancelBookingAsync(Guid bookingId, CancellationToken cancellationToken = default)
+    public async Task<CancellationTerms> PreviewCancellationAsync(
+        Guid bookingId,
+        CancellationToken cancellationToken = default)
+    {
+        var booking = await GetOwnedBookingAsync(bookingId, cancellationToken);
+        return TermsFor(booking, _clock.UtcNow);
+    }
+
+    public async Task<CancellationOutcome> CancelBookingAsync(
+        Guid bookingId,
+        CancellationToken cancellationToken = default)
     {
         var booking = await GetOwnedBookingAsync(bookingId, cancellationToken);
 
@@ -265,13 +275,62 @@ public sealed class BookingService : IBookingService
             throw new DomainException($"Only a booking that has not started can be cancelled (status: {booking.Status}).");
         }
 
-        await _wallets.ReleaseHoldAsync(
-            booking.RenterId, booking.Id, booking.HoldAmount, $"cancel:{booking.Id}", cancellationToken);
+        var terms = TermsFor(booking, _clock.UtcNow);
+
+        // The unused part comes back first, so the renter's spendable balance is restored before
+        // anything is charged. Settling first would briefly hold both.
+        if (terms.Refund > 0m)
+        {
+            await _wallets.ReleaseHoldAsync(
+                booking.RenterId, booking.Id, terms.Refund, $"cancel:{booking.Id}", cancellationToken);
+        }
+
+        if (terms.Fee > 0m)
+        {
+            // Settled exactly as a session would be, commission and all. The host lost a slot they
+            // could not re-let, and reusing the settlement path means the ledger shape — and so
+            // reconciliation, and the host's earnings — needs no special case for cancellations.
+            var settlement = await _wallets.SettleAsync(
+                new SettlementRequest(
+                    booking.Id,
+                    booking.RenterId,
+                    booking.HostId,
+                    terms.Fee,
+                    $"cancel-fee:{booking.Id}"),
+                cancellationToken);
+
+            booking.SettledAmount = settlement.GrossAmount;
+            booking.PlatformFee = settlement.PlatformFee;
+        }
 
         booking.Status = BookingStatus.Cancelled;
         await _db.SaveChangesAsync(cancellationToken);
 
-        return booking;
+        return new CancellationOutcome(booking, terms.Fee, terms.Refund);
+    }
+
+    /// <summary>
+    /// The cancellation charge, if any.
+    ///
+    /// Late is measured against the booked start rather than when the booking was made: what
+    /// matters to the host is how much notice they get to re-let the slot, and a booking made a
+    /// minute ago for a slot starting in five is exactly as unhelpful as one made last week.
+    /// </summary>
+    private CancellationTerms TermsFor(Booking booking, DateTimeOffset now)
+    {
+        var freeUntil = booking.StartTime.AddMinutes(-_options.FreeCancellationMinutes);
+        var isFree = now < freeUntil || _options.LateCancellationFeeRate <= 0m;
+
+        var fee = isFree
+            ? 0m
+            : Money.Round(booking.HoldAmount * _options.LateCancellationFeeRate);
+
+        return new CancellationTerms(
+            booking.HoldAmount,
+            fee,
+            Money.Round(booking.HoldAmount - fee),
+            isFree,
+            freeUntil);
     }
 
     private async Task<Booking> GetBookingAsync(Guid bookingId, CancellationToken cancellationToken) =>

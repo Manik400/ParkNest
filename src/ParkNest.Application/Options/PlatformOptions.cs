@@ -32,6 +32,26 @@ public sealed class PlatformOptions
     /// </summary>
     public decimal MaximumRechargeCredits { get; set; } = 25_000m;
 
+    /// <summary>
+    /// How long before the booked start a renter may cancel and get everything back.
+    ///
+    /// The number is a product decision, not a technical one, which is exactly why it lives here:
+    /// ops can move it without a deploy once there is evidence about how often hosts lose slots.
+    /// An hour is the starting position — long enough that a change of plans is free, short enough
+    /// that a host is not left with a dead slot minutes before it starts.
+    /// </summary>
+    public int FreeCancellationMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Fraction of the hold the renter forfeits when they cancel inside that window. It settles to
+    /// the host exactly as a session would, commission and all — a cancelled slot they could not
+    /// re-let is lost income, and the platform's cut of compensating them is the same cut it takes
+    /// on the booking that did not happen.
+    ///
+    /// Zero restores the old behaviour: cancel any time, keep everything.
+    /// </summary>
+    public decimal LateCancellationFeeRate { get; set; } = 0.5m;
+
     /// <summary>Ceiling on the city-configured overstay multiplier, so hosts can't gouge a stuck renter.</summary>
     public decimal MaxOverstayMultiplier { get; set; } = 2.0m;
 }
