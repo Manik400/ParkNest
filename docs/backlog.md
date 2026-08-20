@@ -84,7 +84,11 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [x] Tier 2 detection: QR scan + GPS geofence, opt-in per space. The host mints a code for the
       sticker; a check-in must present that code *and* a position near the pin. Renter-facing
       scanning in the app is still to do — the API accepts it, nothing photographs a QR yet.
-- [ ] Ratings and trust score beyond the current violation penalty
+- [x] Ratings and trust score beyond the current violation penalty. Both parties rate a finished
+      session, once each; scores move the trust score in small steps because it gates cash-out and
+      one annoyed counterparty must not be able to strand a host's earnings. An unrated user has no
+      average rather than a zero — "0.0 stars" for a new host reads as terrible, which is the
+      opposite of the truth.
 - [ ] Prometheus/Grafana: booking volume, ledger reconciliation drift, dispute rate
 - [x] Wallet concurrency under load. It needed both, and neither alone was enough: a retry on the
       optimistic token, and a `FOR UPDATE` lock on the wallet rows so writers queue instead of

@@ -25,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<Payments.IPaymentService, Payments.PaymentService>();
         services.AddScoped<Payments.IPaymentOrderExpiry, Payments.PaymentOrderExpiry>();
         services.AddScoped<Disputes.IDisputeService, Disputes.DisputeService>();
+        services.AddScoped<Ratings.IRatingService, Ratings.RatingService>();
 
         return services;
     }
