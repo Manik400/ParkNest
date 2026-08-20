@@ -17,7 +17,13 @@ public sealed class PlatformOptions
     /// <summary>Shortest bookable duration.</summary>
     public int MinimumBookingMinutes { get; set; } = 30;
 
-    /// <summary>Grace period after the booked end time before an uncovered overstay becomes a violation.</summary>
+    /// <summary>
+    /// How long past the booked end the background meter leaves a session alone.
+    ///
+    /// It stops a renter two minutes late getting a debit while they are walking back to the car.
+    /// It does not discount anything: checkout bills the real duration either way, so grace
+    /// changes when the charge lands, never what it comes to.
+    /// </summary>
     public int OverstayGraceMinutes { get; set; } = 15;
 
     /// <summary>Hosts cannot cash out below this, to keep payout fees sane (PRD §5.1.6).</summary>

@@ -18,6 +18,7 @@ public static class DependencyInjection
         services.AddScoped<IListingService, ListingService>();
         services.AddScoped<IListingPhotoService, ListingPhotoService>();
         services.AddScoped<IBookingService, BookingService>();
+        services.AddScoped<IOverstayMeter, OverstayMeter>();
         services.AddScoped<Auth.IAuthService, Auth.AuthService>();
         services.AddScoped<Queries.IParkNestQueries, Queries.ParkNestQueries>();
         services.AddScoped<Vehicles.IVehicleService, Vehicles.VehicleService>();

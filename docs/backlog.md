@@ -73,9 +73,11 @@ Phases follow PRD §18. Items are ordered within each phase.
 
 ## Phase 1 — Trust and scale hardening
 
-- [ ] Background overstay meter: incremental debits *during* the session, not one shot at checkout
-      (PRD §10.3). Needs a hosted service plus the grace-period timer that `OverstayGraceMinutes`
-      currently configures but nothing enforces.
+- [x] Background overstay meter: incremental debits *during* the session, not one shot at checkout
+      (PRD §10.3). `OverstayGraceMinutes` now governs when the meter starts rather than sitting
+      unused. It composes with checkout by accumulating — the meter records what it has taken, and
+      checkout charges the difference — so a session costs the same whether the meter ran every
+      increment, once, or never.
 - [ ] RabbitMQ: publish booking events, consume in wallet and notification modules
 - [ ] SignalR: live session timer, overstay warnings, wallet updates; degrade to FCM push when the
       socket drops

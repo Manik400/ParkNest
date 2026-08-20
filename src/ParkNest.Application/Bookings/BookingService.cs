@@ -215,11 +215,28 @@ public sealed class BookingService : IBookingService
             var overstayMinutes = billedMinutes - booking.BookedMinutes;
             var overstayDue = _pricing.QuoteOverstay(booking.RatePerHour, booking.OverstayMultiplier, overstayMinutes);
 
-            var debit = await _wallets.DebitOverstayAsync(
-                booking.RenterId, booking.Id, overstayDue, $"overstay:{booking.Id}", cancellationToken);
+            // The meter may already have taken part of this while the session ran, so only the
+            // difference is charged now. Recomputing the total and subtracting — rather than
+            // trusting a running tally alone — means the final figure is right whether the meter
+            // ran every increment, once, or never.
+            var alreadyDebited = booking.OverstayAmount;
+            var outstanding = Money.Round(overstayDue - alreadyDebited);
 
-            overstayCovered = debit.Covered;
-            shortfall = debit.Shortfall;
+            if (outstanding > 0m)
+            {
+                var debit = await _wallets.DebitOverstayAsync(
+                    booking.RenterId, booking.Id, outstanding, $"overstay:{booking.Id}:final", cancellationToken);
+
+                overstayCovered = Money.Round(alreadyDebited + debit.Covered);
+            }
+            else
+            {
+                overstayCovered = alreadyDebited;
+            }
+
+            // Measured against what was owed in total, so a renter who ran short mid-session but
+            // topped up before leaving is not left carrying a violation.
+            shortfall = Money.Round(overstayDue - overstayCovered);
             amountFromHold = Money.Round(booking.HoldAmount + overstayCovered);
         }
 

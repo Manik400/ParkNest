@@ -11,6 +11,7 @@ using ParkNest.Application.Listings;
 using ParkNest.Application.Options;
 using ParkNest.Application.Payments;
 using ParkNest.Infrastructure.Auth;
+using ParkNest.Infrastructure.Bookings;
 using ParkNest.Infrastructure.Payments;
 using ParkNest.Infrastructure.Storage;
 using ParkNest.Infrastructure.Persistence;
@@ -46,6 +47,11 @@ public static class DependencyInjection
         AddSms(services, configuration, environment);
         AddPayments(services, configuration, environment);
         AddPhotoStorage(services, configuration, environment);
+
+        // Over-runs bill themselves while the session is still running rather than only at
+        // checkout, which is the difference between discovering a renter cannot pay while their
+        // car is still in the bay and discovering it after they have driven away.
+        services.AddHostedService<OverstayMeterService>();
 
         // Only where orders can actually be created. With payments disabled the sweep would wake
         // every five minutes to scan a table nothing writes to.

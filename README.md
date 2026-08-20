@@ -31,6 +31,7 @@ rather than more code.
 | Listing photos | Upload, list, delete. Local disk by default, behind a storage interface |
 | Cancellation policy | Free outside a configurable window; inside it the host is compensated |
 | Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, disputes, payouts, pricing bands |
+| Background overstay meter | Bills an over-run while it runs, not just at checkout |
 | RabbitMQ, SignalR | Not started (Phase 1) |
 | Flutter renter + host app | Sign-in, map search from your location, quote, book, session, wallet, vehicles, listing a space, disputes |
 
