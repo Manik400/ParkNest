@@ -21,6 +21,16 @@ public sealed class LedgerService : ILedgerService
         _clock = clock;
     }
 
+    /// <summary>
+    /// How many times a posting will re-read and re-apply after losing a concurrency race.
+    ///
+    /// Two renters settling against the same host, or one renter with two sessions ending
+    /// together, both write to a wallet at once — the loser's <c>Version</c> check fails and its
+    /// save is rejected. Without a retry that surfaced as an unhandled error on a booking that
+    /// should simply have succeeded a moment later.
+    /// </summary>
+    private const int MaxConcurrencyAttempts = 5;
+
     public async Task<LedgerTransaction> PostAsync(
         LedgerTransactionType type,
         string idempotencyKey,
@@ -28,6 +38,73 @@ public sealed class LedgerService : ILedgerService
         Guid? bookingId = null,
         string? description = null,
         CancellationToken cancellationToken = default)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            // Local to the attempt, so nothing about retrying depends on this service being
+            // scoped to one request at a time.
+            var tracked = new List<object>();
+
+            try
+            {
+                return await TryPostAsync(
+                    type, idempotencyKey, postings, bookingId, description, tracked, cancellationToken);
+            }
+            catch (DbUpdateException ex) when (ex is not DbUpdateConcurrencyException)
+            {
+                // Almost certainly the unique index on IdempotencyKey: two copies of the same
+                // request raced, both found nothing on the pre-check, and one of them lost the
+                // insert. The pre-check is only an optimisation — this index is the actual
+                // guarantee, and it just did its job.
+                //
+                // Asked rather than assumed by inspecting a provider error code: if a transaction
+                // with this key now exists, the caller's work is done and that is the answer they
+                // wanted. Anything else is a real failure and is rethrown.
+                foreach (var entity in tracked)
+                {
+                    _db.Detach(entity);
+                }
+
+                var winner = await _db.LedgerTransactions
+                    .Include(t => t.Entries)
+                    .FirstOrDefaultAsync(t => t.IdempotencyKey == idempotencyKey, cancellationToken);
+
+                if (winner is not null)
+                {
+                    return winner;
+                }
+
+                throw;
+            }
+            catch (DbUpdateConcurrencyException) when (attempt < MaxConcurrencyAttempts)
+            {
+                // Someone else moved this wallet between our read and our write. Nothing was
+                // written — the whole save is rejected as one unit — so re-reading and re-applying
+                // is safe, and the idempotency check at the top of the next attempt catches the
+                // case where the winner happened to be writing this very transaction.
+                //
+                // Dropping what this attempt tracked is the part that matters: those copies hold
+                // the values that lost, and a re-query would hand the same stale instances back.
+                foreach (var entity in tracked)
+                {
+                    _db.Detach(entity);
+                }
+
+                // A brief, growing pause. Retrying instantly just reproduces the same collision
+                // when several writers are contending for the same row.
+                await Task.Delay(TimeSpan.FromMilliseconds(10 * attempt), cancellationToken);
+            }
+        }
+    }
+
+    private async Task<LedgerTransaction> TryPostAsync(
+        LedgerTransactionType type,
+        string idempotencyKey,
+        IReadOnlyList<LedgerPosting> postings,
+        Guid? bookingId,
+        string? description,
+        List<object> tracked,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey))
         {
@@ -81,40 +158,72 @@ public sealed class LedgerService : ILedgerService
             .Distinct()
             .ToList();
 
-        var wallets = await _db.Wallets
-            .Where(w => walletIds.Contains(w.Id))
-            .ToDictionaryAsync(w => w.Id, cancellationToken);
+        // One transaction covering the lock and the write. The lock only holds for as long as the
+        // transaction does, so acquiring it outside would protect nothing.
+        var owned = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
 
-        foreach (var posting in normalised)
+        try
         {
-            transaction.Entries.Add(new LedgerEntry
-            {
-                LedgerTransactionId = transaction.Id,
-                WalletId = posting.WalletId,
-                AccountType = posting.AccountType,
-                Direction = posting.Direction,
-                Amount = posting.Amount,
-                CreatedAt = now
-            });
+            await _db.LockWalletsAsync(walletIds, cancellationToken);
 
-            if (!posting.WalletId.HasValue)
+            // Read after the lock, never before: values fetched first are exactly the stale ones
+            // the lock exists to stop us writing back.
+            var wallets = await _db.Wallets
+                .Where(w => walletIds.Contains(w.Id))
+                .ToDictionaryAsync(w => w.Id, cancellationToken);
+
+            // Noted so a lost race can drop them and read again.
+            tracked.AddRange(wallets.Values);
+            tracked.Add(transaction);
+
+            foreach (var posting in normalised)
             {
-                // System accounts have no stored balance; their position is derived from entries.
-                continue;
+                var entry = new LedgerEntry
+                {
+                    LedgerTransactionId = transaction.Id,
+                    WalletId = posting.WalletId,
+                    AccountType = posting.AccountType,
+                    Direction = posting.Direction,
+                    Amount = posting.Amount,
+                    CreatedAt = now
+                };
+
+                transaction.Entries.Add(entry);
+                tracked.Add(entry);
+
+                if (!posting.WalletId.HasValue)
+                {
+                    // System accounts have no stored balance; their position is derived from entries.
+                    continue;
+                }
+
+                if (!wallets.TryGetValue(posting.WalletId.Value, out var wallet))
+                {
+                    throw new DomainException($"Wallet {posting.WalletId} does not exist.");
+                }
+
+                wallet.Apply(posting.AccountType, posting.SignedAmountFor());
             }
 
-            if (!wallets.TryGetValue(posting.WalletId.Value, out var wallet))
+            _db.LedgerTransactions.Add(transaction);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            if (owned is not null)
             {
-                throw new DomainException($"Wallet {posting.WalletId} does not exist.");
+                await owned.CommitAsync(cancellationToken);
             }
 
-            wallet.Apply(posting.AccountType, posting.SignedAmountFor());
+            return transaction;
         }
-
-        _db.LedgerTransactions.Add(transaction);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        return transaction;
+        finally
+        {
+            // Disposing rolls back anything uncommitted, which is what should happen when the
+            // renter turns out to be short and Apply throws part-way through.
+            if (owned is not null)
+            {
+                await owned.DisposeAsync();
+            }
+        }
     }
 
     public async Task<WalletBalances> RecomputeFromEntriesAsync(Guid walletId, CancellationToken cancellationToken = default)

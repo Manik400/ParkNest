@@ -41,6 +41,32 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         Database.BeginTransactionAsync(cancellationToken);
 
+    public bool HasActiveTransaction => Database.CurrentTransaction is not null;
+
+    public async Task LockWalletsAsync(
+        IReadOnlyList<Guid> walletIds,
+        CancellationToken cancellationToken = default)
+    {
+        // SQLite, used by the unit suite, has no row-level locking and does not need it: one
+        // writer at a time is the whole storage model.
+        if (walletIds.Count == 0 || Database.ProviderName?.Contains("Npgsql") != true)
+        {
+            return;
+        }
+
+        // Locked one at a time in id order. Two transactions that touch the same pair of wallets
+        // in opposite orders would otherwise each hold what the other needs, and Postgres would
+        // break the deadlock by killing one of them — a booking failing for a reason nobody could
+        // act on. A consistent order makes that impossible rather than rare.
+        foreach (var walletId in walletIds.OrderBy(id => id))
+        {
+            await Database.ExecuteSqlRawAsync(
+                """SELECT 1 FROM wallets WHERE "Id" = {0} FOR UPDATE""",
+                new object[] { walletId },
+                cancellationToken);
+        }
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ParkNestDbContext).Assembly);
@@ -62,4 +88,7 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
 
         base.ConfigureConventions(configurationBuilder);
     }
+
+    public void Detach(object entity) => Entry(entity).State = EntityState.Detached;
+
 }

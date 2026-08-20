@@ -86,8 +86,10 @@ Phases follow PRD §18. Items are ordered within each phase.
       scanning in the app is still to do — the API accepts it, nothing photographs a QR yet.
 - [ ] Ratings and trust score beyond the current violation penalty
 - [ ] Prometheus/Grafana: booking volume, ledger reconciliation drift, dispute rate
-- [ ] Wallet concurrency under load — the optimistic `Version` token is untested against real
-      contention; may need a retry policy or row locking
+- [x] Wallet concurrency under load. It needed both, and neither alone was enough: a retry on the
+      optimistic token, and a `FOR UPDATE` lock on the wallet rows so writers queue instead of
+      colliding. Tested against real Postgres, because a suite on one shared SQLite connection can
+      only carry a concurrency token, never exercise it.
 
 ## Phase 2 — Multi-city
 
