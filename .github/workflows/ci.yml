@@ -121,11 +121,12 @@ jobs:
           PGPASSWORD: parknest
         run: bash .github/scripts/verify-schema.sh
 
-      # The geo-search path — the generated geog column, the GiST index, the raw SQL — is
-      # invisible to the SQLite suite, so this is the only job that exercises it. Without the
-      # connection variable these tests skip, which is the right behaviour locally and would be
-      # silent rot here; the variable is set, so they run.
-      - name: Geo-search integration tests
+      # Two things only this job can check: the geo-search path — the generated geog column, the
+      # GiST index, the raw SQL — which the SQLite suite cannot see at all, and whether every
+      # controller resolves from the real container, which no test that constructs its
+      # dependencies by hand can see either. Without the connection variable these skip, which is
+      # right locally and would be silent rot here; the variable is set, so they run.
+      - name: Integration tests (geo-search, container wiring)
         env:
           PARKNEST_TEST_CONNECTION: Host=localhost;Port=5432;Database=parknest;Username=parknest;Password=parknest
         run: >
