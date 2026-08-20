@@ -88,6 +88,19 @@ public sealed class ListingsController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// The code to print on the sticker at the space, minted on first ask. Host only: a code any
+    /// renter could fetch would prove nothing about them having stood anywhere.
+    /// </summary>
+    [HttpGet("{spaceId:guid}/check-in-code")]
+    public async Task<ActionResult<CheckInCode>> CheckInCode(Guid spaceId, CancellationToken cancellationToken) =>
+        Ok(await _listings.GetOrCreateCheckInCodeAsync(spaceId, cancellationToken));
+
+    /// <summary>Issues a new code and retires the old one, for a sticker that has been photographed.</summary>
+    [HttpPost("{spaceId:guid}/check-in-code/rotate")]
+    public async Task<ActionResult<CheckInCode>> RotateCheckInCode(Guid spaceId, CancellationToken cancellationToken) =>
+        Ok(await _listings.RotateCheckInCodeAsync(spaceId, cancellationToken));
+
     /// <summary>Goes live, but only if the asking price clears the city band (PRD §9).</summary>
     [HttpPost("{spaceId:guid}/publish")]
     public async Task<ActionResult<ListingResponse>> Publish(Guid spaceId, CancellationToken cancellationToken)

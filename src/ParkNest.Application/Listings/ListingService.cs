@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using ParkNest.Application.Abstractions;
 using ParkNest.Application.Pricing;
@@ -14,7 +15,22 @@ public interface IListingService
     Task<ParkingSpace> PublishAsync(Guid spaceId, CancellationToken cancellationToken = default);
 
     Task<ParkingSpace> SetStatusAsync(Guid spaceId, SpaceStatus status, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The space's check-in code, minting one on first ask. Host only — it is what goes on the
+    /// printed sticker, and a code a renter could fetch from the API would prove nothing about
+    /// them having been anywhere.
+    /// </summary>
+    Task<CheckInCode> GetOrCreateCheckInCodeAsync(Guid spaceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Issues a new code and retires the old one. For a sticker that has been photographed, or
+    /// peeled off and taken away.
+    /// </summary>
+    Task<CheckInCode> RotateCheckInCodeAsync(Guid spaceId, CancellationToken cancellationToken = default);
 }
+
+public sealed record CheckInCode(Guid SpaceId, string Token);
 
 /// <summary>The host is always the authenticated caller — see <see cref="CreateBookingRequest"/>
 /// for the same reasoning about not accepting a caller-supplied user id.</summary>
@@ -147,6 +163,44 @@ public sealed class ListingService : IListingService
 
         return space;
     }
+
+    public async Task<CheckInCode> GetOrCreateCheckInCodeAsync(
+        Guid spaceId,
+        CancellationToken cancellationToken = default)
+    {
+        var space = await LoadAsync(spaceId, cancellationToken);
+
+        // Minted on demand rather than at publish, so every listing that already exists keeps
+        // working on Tier 1 and opts in when the host asks for a sticker.
+        if (string.IsNullOrEmpty(space.CheckInToken))
+        {
+            space.CheckInToken = GenerateToken();
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return new CheckInCode(space.Id, space.CheckInToken);
+    }
+
+    public async Task<CheckInCode> RotateCheckInCodeAsync(
+        Guid spaceId,
+        CancellationToken cancellationToken = default)
+    {
+        var space = await LoadAsync(spaceId, cancellationToken);
+
+        space.CheckInToken = GenerateToken();
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return new CheckInCode(space.Id, space.CheckInToken);
+    }
+
+    /// <summary>
+    /// 160 bits, URL-safe. Long because it is scanned rather than typed, so length costs nobody
+    /// anything — and guessing was never the threat here. A sticker that has been photographed is,
+    /// which is what rotation is for.
+    /// </summary>
+    private static string GenerateToken() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(20))
+            .Replace("+", "-").Replace("/", "_").TrimEnd('=');
 
     /// <summary>
     /// Loads a space the caller is allowed to change. Without the ownership check any host could

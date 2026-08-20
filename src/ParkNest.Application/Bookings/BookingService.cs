@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
@@ -151,7 +153,7 @@ public sealed class BookingService : IBookingService
         return booking;
     }
 
-    public async Task<Booking> StartSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CancellationToken cancellationToken = default)
+    public async Task<Booking> StartSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CheckInProof? proof = null, CancellationToken cancellationToken = default)
     {
         var booking = await GetOwnedBookingAsync(bookingId, cancellationToken);
 
@@ -159,6 +161,8 @@ public sealed class BookingService : IBookingService
         {
             throw new DomainException($"Booking {bookingId} cannot be started from status {booking.Status}.");
         }
+
+        await VerifyDetectionAsync(booking, method, proof, cancellationToken);
 
         booking.ActualStartTime = at ?? _clock.UtcNow;
         booking.StartDetectionMethod = method;
@@ -168,7 +172,7 @@ public sealed class BookingService : IBookingService
         return booking;
     }
 
-    public async Task<SessionOutcome> EndSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CancellationToken cancellationToken = default)
+    public async Task<SessionOutcome> EndSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CheckInProof? proof = null, CancellationToken cancellationToken = default)
     {
         var booking = await GetOwnedBookingAsync(bookingId, cancellationToken);
 
@@ -176,6 +180,8 @@ public sealed class BookingService : IBookingService
         {
             throw new DomainException($"Booking {bookingId} cannot be ended from status {booking.Status}.");
         }
+
+        await VerifyDetectionAsync(booking, method, proof, cancellationToken);
 
         var endedAt = at ?? _clock.UtcNow;
         var startedAt = booking.ActualStartTime ?? booking.StartTime;
@@ -348,6 +354,76 @@ public sealed class BookingService : IBookingService
             Money.Round(booking.HoldAmount - fee),
             isFree,
             freeUntil);
+    }
+
+    /// <summary>
+    /// Checks that the caller is entitled to claim this detection method, and that a Tier 2 claim
+    /// stands up.
+    ///
+    /// The method is not decoration: it is the audit field a human reads when resolving a dispute
+    /// about whether someone was really there. Letting a client assert any value it liked would
+    /// make the strongest evidence in the system the cheapest to fabricate.
+    /// </summary>
+    private async Task VerifyDetectionAsync(
+        Booking booking,
+        DetectionMethod method,
+        CheckInProof? proof,
+        CancellationToken cancellationToken)
+    {
+        switch (method)
+        {
+            case DetectionMethod.AppConfirmed:
+                // Tier 1. The renter's word, and it says so on the booking.
+                return;
+
+            case DetectionMethod.AdminOverride:
+                // Only ever the result of a human resolving a dispute.
+                _currentUser.RequireAdmin();
+                return;
+
+            case DetectionMethod.AnprSensor:
+                // Tier 3 arrives from hardware at the space, not from a phone. Until that exists
+                // there is no honest way for a request to carry it.
+                throw new DomainException("Sensor detection is not available for this space.");
+
+            case DetectionMethod.QrGeofence:
+                break;
+
+            default:
+                throw new DomainException($"{method} is not a detection method this endpoint accepts.");
+        }
+
+        if (proof is null)
+        {
+            throw new DomainException("Scanning the code needs the code and your location.");
+        }
+
+        var space = await _db.ParkingSpaces
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == booking.ParkingSpaceId, cancellationToken)
+            ?? throw new DomainException("That space no longer exists.");
+
+        if (string.IsNullOrEmpty(space.CheckInToken))
+        {
+            throw new DomainException("This space does not have a check-in code. Confirm in the app instead.");
+        }
+
+        // Fixed-time, because a comparison that returns early leaks how much of the token was
+        // right and turns guessing into a per-character search.
+        if (!CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(space.CheckInToken),
+                Encoding.UTF8.GetBytes(proof.Token)))
+        {
+            throw new DomainException("That code does not belong to this space.");
+        }
+
+        var distance = Geo.DistanceMetres(proof.Latitude, proof.Longitude, space.Latitude, space.Longitude);
+
+        if (distance > _options.CheckInRadiusMetres)
+        {
+            throw new DomainException(
+                $"You appear to be {distance:0} m from the space. Move closer, or confirm in the app.");
+        }
     }
 
     private async Task<Booking> GetBookingAsync(Guid bookingId, CancellationToken cancellationToken) =>

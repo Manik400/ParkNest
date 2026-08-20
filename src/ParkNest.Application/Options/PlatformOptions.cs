@@ -58,6 +58,17 @@ public sealed class PlatformOptions
     /// </summary>
     public decimal LateCancellationFeeRate { get; set; } = 0.5m;
 
+    /// <summary>
+    /// How far from the pin a Tier 2 scan is still accepted.
+    ///
+    /// Generous on purpose. Phone GPS is routinely tens of metres out in exactly the places this
+    /// matters — basements, between tall buildings, under cover — and a renter who is genuinely
+    /// standing at the space being told they are not is a support ticket and a lost booking. The
+    /// check is corroboration of a scan that already required physical presence, not the sole
+    /// control, so it is tuned to avoid false refusals rather than to catch every spoof.
+    /// </summary>
+    public int CheckInRadiusMetres { get; set; } = 150;
+
     /// <summary>Ceiling on the city-configured overstay multiplier, so hosts can't gouge a stuck renter.</summary>
     public decimal MaxOverstayMultiplier { get; set; } = 2.0m;
 }

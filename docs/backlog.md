@@ -81,7 +81,9 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [ ] RabbitMQ: publish booking events, consume in wallet and notification modules
 - [ ] SignalR: live session timer, overstay warnings, wallet updates; degrade to FCM push when the
       socket drops
-- [ ] Tier 2 detection: QR scan + GPS geofence validation
+- [x] Tier 2 detection: QR scan + GPS geofence, opt-in per space. The host mints a code for the
+      sticker; a check-in must present that code *and* a position near the pin. Renter-facing
+      scanning in the app is still to do — the API accepts it, nothing photographs a QR yet.
 - [ ] Ratings and trust score beyond the current violation penalty
 - [ ] Prometheus/Grafana: booking volume, ledger reconciliation drift, dispute rate
 - [ ] Wallet concurrency under load — the optimistic `Version` token is untested against real

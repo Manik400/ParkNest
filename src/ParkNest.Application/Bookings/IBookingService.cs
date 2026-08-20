@@ -20,13 +20,13 @@ public interface IBookingService
     Task<Booking> CreateBookingAsync(CreateBookingRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>Renter has arrived. Starts the meter.</summary>
-    Task<Booking> StartSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CancellationToken cancellationToken = default);
+    Task<Booking> StartSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CheckInProof? proof = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Renter has left. Measures the real duration, bills it, releases whatever is unused, and
     /// moves the used portion to the host less commission (PRD §5.1.3).
     /// </summary>
-    Task<SessionOutcome> EndSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CancellationToken cancellationToken = default);
+    Task<SessionOutcome> EndSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CheckInProof? proof = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// What cancelling right now would cost, without cancelling. Lets the confirmation say the
@@ -40,6 +40,14 @@ public interface IBookingService
     /// </summary>
     Task<CancellationOutcome> CancelBookingAsync(Guid bookingId, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// What a Tier 2 check-in offers as evidence: the code from the sticker at the space, and where
+/// the phone thinks it is. Neither is proof on its own — the code can be photographed and GPS can
+/// be spoofed — but needing both raises the cost of faking a check-in from trivial to deliberate,
+/// which is the whole ambition at this tier (PRD §10.2).
+/// </summary>
+public sealed record CheckInProof(string Token, double Latitude, double Longitude);
 
 /// <param name="FreeUntil">After this moment a cancellation starts costing something.</param>
 public sealed record CancellationTerms(
