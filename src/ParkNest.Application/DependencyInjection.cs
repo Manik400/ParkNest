@@ -16,6 +16,7 @@ public static class DependencyInjection
         services.AddScoped<IWalletService, WalletService>();
         services.AddScoped<IPricingService, PricingService>();
         services.AddScoped<IListingService, ListingService>();
+        services.AddScoped<IListingPhotoService, ListingPhotoService>();
         services.AddScoped<IBookingService, BookingService>();
         services.AddScoped<Auth.IAuthService, Auth.AuthService>();
         services.AddScoped<Queries.IParkNestQueries, Queries.ParkNestQueries>();
