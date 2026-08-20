@@ -24,6 +24,7 @@ public sealed class BookingService : IBookingService
     private readonly IClock _clock;
     private readonly ICurrentUser _currentUser;
     private readonly PlatformOptions _options;
+    private readonly IEventBus _events;
 
     public BookingService(
         IParkNestDbContext db,
@@ -31,7 +32,8 @@ public sealed class BookingService : IBookingService
         IPricingService pricing,
         IClock clock,
         ICurrentUser currentUser,
-        IOptions<PlatformOptions> options)
+        IOptions<PlatformOptions> options,
+        IEventBus events)
     {
         _db = db;
         _wallets = wallets;
@@ -39,6 +41,7 @@ public sealed class BookingService : IBookingService
         _clock = clock;
         _currentUser = currentUser;
         _options = options.Value;
+        _events = events;
     }
 
     public async Task<BookingQuote> QuoteAsync(
@@ -150,6 +153,13 @@ public sealed class BookingService : IBookingService
         _db.Bookings.Add(booking);
         await _db.SaveChangesAsync(cancellationToken);
 
+        // Published after the save, never before: an event is a statement that something has
+        // happened, and announcing a booking that then fails to persist is a lie other modules
+        // will act on.
+        await _events.PublishAsync(new BookingCreated(
+            booking.Id, booking.RenterId, booking.HostId, booking.ParkingSpaceId,
+            booking.StartTime, booking.ExpectedEndTime, booking.HoldAmount), cancellationToken);
+
         return booking;
     }
 
@@ -169,6 +179,11 @@ public sealed class BookingService : IBookingService
         booking.Status = BookingStatus.Active;
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        await _events.PublishAsync(new SessionStarted(
+            booking.Id, booking.RenterId, booking.HostId,
+            booking.ActualStartTime.Value, booking.ExpectedEndTime, method.ToString()), cancellationToken);
+
         return booking;
     }
 
@@ -269,6 +284,10 @@ public sealed class BookingService : IBookingService
 
         await _db.SaveChangesAsync(cancellationToken);
 
+        await _events.PublishAsync(new SessionEnded(
+            booking.Id, booking.RenterId, booking.HostId, billedMinutes,
+            settlement.GrossAmount, released, settlement.HostCredited, shortfall), cancellationToken);
+
         return new SessionOutcome(
             booking,
             billedMinutes,
@@ -328,6 +347,9 @@ public sealed class BookingService : IBookingService
 
         booking.Status = BookingStatus.Cancelled;
         await _db.SaveChangesAsync(cancellationToken);
+
+        await _events.PublishAsync(new BookingCancelled(
+            booking.Id, booking.RenterId, booking.HostId, terms.Fee, terms.Refund), cancellationToken);
 
         return new CancellationOutcome(booking, terms.Fee, terms.Refund);
     }

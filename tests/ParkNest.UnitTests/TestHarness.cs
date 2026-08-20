@@ -66,7 +66,8 @@ public sealed class TestHarness : IDisposable
         Wallets = new WalletService(Db, Ledger, Clock, wrapped);
         PricingService = new PricingService(Db, wrapped);
         Listings = new ListingService(Db, PricingService, Clock, CurrentUser);
-        Bookings = new BookingService(Db, Wallets, PricingService, Clock, CurrentUser, wrapped);
+        Events = new RecordingEventBus();
+        Bookings = new BookingService(Db, Wallets, PricingService, Clock, CurrentUser, wrapped, Events);
 
         AuthOptions = new AuthOptions
         {
@@ -95,6 +96,9 @@ public sealed class TestHarness : IDisposable
     public IPricingService PricingService { get; }
     public IListingService Listings { get; }
     public IBookingService Bookings { get; }
+
+    /// <summary>Captures what was announced, so tests can assert on it without a broker.</summary>
+    public RecordingEventBus Events { get; }
     public IAuthService Auth { get; }
     public AuthOptions AuthOptions { get; }
     public RecordingOtpSender OtpSender { get; }

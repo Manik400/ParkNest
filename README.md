@@ -35,7 +35,9 @@ rather than more code.
 | Tier 2 detection | QR code + geofence, opt-in per space. API side only; no scanner in the app yet |
 | Ratings and trust score | Both parties rate a finished session; scores feed the trust score |
 | Wallet concurrency | Row-locked, retried, and tested against real contention |
-| RabbitMQ, SignalR | Not started (Phase 1) |
+| Events and notifications | Published in-process by default, RabbitMQ when configured; stored per user |
+| SignalR | Live session, overstay and wallet updates on a per-user group |
+| Metrics | Prometheus at `/metrics`, plus an hourly ledger reconciliation gauge |
 | Flutter renter + host app | Sign-in, map search from your location, quote, book, session, wallet, vehicles, listing a space, disputes |
 
 ## Layout
@@ -178,6 +180,21 @@ changes nothing but the edge of the system. See
 Platform economics are configuration, never constants — see the `Platform` section of
 `src/ParkNest.Api/appsettings.json` for commission rate, billing increment, grace period, the
 cash-out floor, and the cancellation window and fee. City price bands are database rows managed through `/api/admin/pricing`.
+
+## A note on the database
+
+**It must be UTF-8.** Encoding is fixed when a database is created, and a Windows default lands on
+WIN1252 — which has no rupee sign, no Devanagari, and no Kannada. The first symptom is a write
+failing deep inside a background handler; the real problem is a database that cannot hold a large
+share of its users' names. The API reports it at startup rather than at the first insert that
+happens to contain one.
+
+```sql
+CREATE DATABASE parknest ENCODING 'UTF8' TEMPLATE template0
+  LC_COLLATE 'en_US.UTF-8' LC_CTYPE 'en_US.UTF-8';
+```
+
+The Docker image in `docker-compose.yml` already does this. A hand-made local database may not.
 
 ## A note on compliance
 

@@ -78,9 +78,14 @@ Phases follow PRD §18. Items are ordered within each phase.
       unused. It composes with checkout by accumulating — the meter records what it has taken, and
       checkout charges the difference — so a session costs the same whether the meter ran every
       increment, once, or never.
-- [ ] RabbitMQ: publish booking events, consume in wallet and notification modules
-- [ ] SignalR: live session timer, overstay warnings, wallet updates; degrade to FCM push when the
-      socket drops
+- [x] RabbitMQ: booking, dispute and wallet events published to a topic exchange, consumed into a
+      notification module. In-process dispatch is the default and not a stopgap — the modules are
+      in one process, so a broker between them buys nothing until they are not, and requiring one
+      would mean installing RabbitMQ to see a booking confirmation.
+- [x] SignalR: session start and end, overstay warnings, wallet movements and cancellations pushed
+      to a per-user group. Every push is paired with a stored notification rather than replacing
+      it — a socket message to a phone in a basement is simply lost. FCM push is still to do; the
+      durable row is what stands in for it meanwhile.
 - [x] Tier 2 detection: QR scan + GPS geofence, opt-in per space. The host mints a code for the
       sticker; a check-in must present that code *and* a position near the pin. Renter-facing
       scanning in the app is still to do — the API accepts it, nothing photographs a QR yet.
@@ -89,11 +94,23 @@ Phases follow PRD §18. Items are ordered within each phase.
       one annoyed counterparty must not be able to strand a host's earnings. An unrated user has no
       average rather than a zero — "0.0 stars" for a new host reads as terrible, which is the
       opposite of the truth.
-- [ ] Prometheus/Grafana: booking volume, ledger reconciliation drift, dispute rate
+- [x] Prometheus: booking volume, settled credits, shortfall, dispute rate, and an hourly sweep
+      that replays every wallet from its ledger and publishes the drift as a gauge. Counters are
+      fed off the same events as notifications rather than instrumented inside the money paths.
+      Grafana dashboards are not built; the metrics they would read are.
 - [x] Wallet concurrency under load. It needed both, and neither alone was enough: a retry on the
       optimistic token, and a `FOR UPDATE` lock on the wallet rows so writers queue instead of
       colliding. Tested against real Postgres, because a suite on one shared SQLite connection can
       only carry a concurrency token, never exercise it.
+
+### Left over from Phase 1
+
+- **FCM push** for when the socket is down. The durable notification means nothing is lost, but a
+  renter whose overstay is billing does not benefit from a message they only see next time they
+  open the app.
+- **Grafana dashboards.** The metrics exist and are scrapeable; nobody has drawn the graphs.
+- **Client gap.** Tier 2 scanning, ratings, and notifications are all API-only. The backend does
+  more than either client can reach.
 
 ## Phase 2 — Multi-city
 

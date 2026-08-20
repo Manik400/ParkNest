@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using ParkNest.Domain.Bookings;
 using ParkNest.Domain.Disputes;
 using ParkNest.Domain.Listings;
+using ParkNest.Domain.Notifications;
 using ParkNest.Domain.Payments;
 using ParkNest.Domain.Payouts;
 using ParkNest.Domain.Pricing;
@@ -35,6 +36,7 @@ public interface IParkNestDbContext
     DbSet<PaymentOrder> PaymentOrders { get; }
     DbSet<Dispute> Disputes { get; }
     DbSet<Rating> Ratings { get; }
+    DbSet<Notification> Notifications { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

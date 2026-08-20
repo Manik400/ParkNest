@@ -15,6 +15,7 @@ public sealed class DisputeService : IDisputeService
     private readonly IWalletService _wallets;
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
+    private readonly IEventBus _events;
     private readonly ILogger<DisputeService> _logger;
 
     public DisputeService(
@@ -23,6 +24,7 @@ public sealed class DisputeService : IDisputeService
         IWalletService wallets,
         ICurrentUser currentUser,
         IClock clock,
+        IEventBus events,
         ILogger<DisputeService> logger)
     {
         _db = db;
@@ -30,6 +32,7 @@ public sealed class DisputeService : IDisputeService
         _wallets = wallets;
         _currentUser = currentUser;
         _clock = clock;
+        _events = events;
         _logger = logger;
     }
 
@@ -99,6 +102,10 @@ public sealed class DisputeService : IDisputeService
         await _db.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Dispute {DisputeId} raised against booking {BookingId}.", dispute.Id, booking.Id);
+
+        await _events.PublishAsync(new DisputeRaised(
+            dispute.Id, booking.Id, userId, booking.RenterId, booking.HostId, dispute.Reason),
+            cancellationToken);
 
         return await ViewAsync(dispute.Id, cancellationToken);
     }
@@ -235,6 +242,10 @@ public sealed class DisputeService : IDisputeService
         _logger.LogInformation(
             "Dispute {DisputeId} resolved with a {Refund} credit adjustment charged to {Payer}.",
             dispute.Id, refund, request.ChargedToPlatform ? "the platform" : "the host");
+
+        await _events.PublishAsync(new DisputeResolved(
+            dispute.Id, booking.Id, booking.RenterId, booking.HostId,
+            dispute.Status.ToString(), dispute.Resolution!, refund), cancellationToken);
 
         return await ViewAsync(dispute.Id, cancellationToken);
     }

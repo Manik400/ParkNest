@@ -12,10 +12,13 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using ParkNest.Api;
 using ParkNest.Api.Auth;
+using ParkNest.Api.Observability;
+using ParkNest.Api.Realtime;
 using ParkNest.Application.Abstractions;
 using ParkNest.Application.Options;
 using ParkNest.Domain.Common;
 using ParkNest.Infrastructure;
+using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -38,6 +41,26 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             // Default is 5 minutes, which lets a revoked-looking token linger. Sessions are long
             // enough that we don't need the slack.
             ClockSkew = TimeSpan.Zero
+        };
+
+        // A browser cannot set an Authorization header on a WebSocket handshake, so SignalR sends
+        // the token as a query parameter instead. Accepted for the hub path and nowhere else —
+        // tokens in query strings end up in access logs and browser history, which is tolerable
+        // for one route and would not be for the API at large.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var token = context.Request.Query["access_token"];
+
+                if (!string.IsNullOrEmpty(token) &&
+                    context.HttpContext.Request.Path.StartsWithSegments("/hubs/parknest"))
+                {
+                    context.Token = token;
+                }
+
+                return Task.CompletedTask;
+            }
         };
     });
 
@@ -130,6 +153,33 @@ builder.Services.AddRateLimiter(options =>
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 });
 
+// The live channel: session timers, overstay warnings, wallet movements.
+builder.Services.AddSignalR();
+
+// Pushes those events down the socket. Registered per event type, alongside — never instead of —
+// the handler that writes the durable notification: a socket push to a phone in a basement is
+// simply lost, and must not be the only place the message existed.
+builder.Services.AddScoped<RealtimeEventHandlers>();
+builder.Services.AddScoped<IEventHandler<SessionStarted>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<SessionEnded>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<OverstayCharged>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<WalletChanged>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<BookingCancelled>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+
+// Business counters, fed off the same events as notifications. Instrumenting the booking service
+// in-line would put observability in the middle of a money path, and the numbers would drift the
+// moment somebody added a code path and forgot the increment.
+builder.Services.AddScoped<MetricsEventHandlers>();
+builder.Services.AddScoped<IEventHandler<BookingCreated>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<SessionEnded>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<BookingCancelled>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<OverstayCharged>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<DisputeRaised>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+
+// Watches the one invariant the whole credit model rests on: that stored balances still equal the
+// ledger replayed from its entries.
+builder.Services.AddHostedService<ReconciliationSweepService>();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddProblemDetails();
 
@@ -142,7 +192,10 @@ if (!builder.Environment.IsProduction())
     builder.Services.AddCors(options => options.AddPolicy(devCorsPolicy, policy => policy
         .WithOrigins("http://localhost:4200", "https://localhost:4200")
         .AllowAnyHeader()
-        .AllowAnyMethod()));
+        .AllowAnyMethod()
+        // SignalR's negotiate step sends credentials, and the browser refuses a wildcard origin
+        // once it does. The origins above are explicit, so this is allowed.
+        .AllowCredentials()));
 }
 
 builder.Services.AddSwaggerGen(options =>
@@ -225,6 +278,10 @@ if (!app.Environment.IsProduction())
 }
 
 // Ahead of authentication: a flood should be shed before it costs us a signature validation.
+// Request duration and status, per endpoint. Before the rate limiter so a shed request still
+// appears in the numbers — a spike of 429s is exactly the thing worth seeing.
+app.UseHttpMetrics();
+
 app.UseRateLimiter();
 
 // Listing photos, when they are kept on this box. Deliberately narrow:
@@ -270,6 +327,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<ParkNestHub>("/hubs/parknest");
+
+// Anonymous, and therefore not to be exposed publicly: the counters describe booking volume and
+// revenue. Reachable from inside the network where Prometheus scrapes it, and firewalled from
+// outside — the same treatment /health gets, for the opposite reason.
+app.MapMetrics("/metrics").AllowAnonymous();
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 
 app.Run();

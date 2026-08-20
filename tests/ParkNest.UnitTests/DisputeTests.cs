@@ -19,7 +19,7 @@ public sealed class DisputeTests : IDisposable
     public DisputeTests()
     {
         _disputes = new DisputeService(
-            _h.Db, _h.Ledger, _h.Wallets, _h.CurrentUser, _h.Clock,
+            _h.Db, _h.Ledger, _h.Wallets, _h.CurrentUser, _h.Clock, _h.Events,
             NullLogger<DisputeService>.Instance);
     }
 

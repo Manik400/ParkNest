@@ -12,6 +12,7 @@ using ParkNest.Application.Options;
 using ParkNest.Application.Payments;
 using ParkNest.Infrastructure.Auth;
 using ParkNest.Infrastructure.Bookings;
+using ParkNest.Infrastructure.Messaging;
 using ParkNest.Infrastructure.Payments;
 using ParkNest.Infrastructure.Storage;
 using ParkNest.Infrastructure.Persistence;
@@ -30,6 +31,7 @@ public static class DependencyInjection
         services.Configure<SmsOptions>(configuration.GetSection(SmsOptions.SectionName));
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
+        services.Configure<MessagingOptions>(configuration.GetSection(MessagingOptions.SectionName));
 
         ValidateAuthOptions(configuration, environment);
 
@@ -40,6 +42,11 @@ public static class DependencyInjection
         services.AddScoped<IParkNestDbContext>(sp => sp.GetRequiredService<ParkNestDbContext>());
         services.AddScoped<ISpaceSearchService, PostgresSpaceSearchService>();
 
+        // Reports at startup if the database cannot hold the text this application handles.
+        // Found the hard way: a Windows-default database landed on WIN1252, which has no rupee
+        // sign and no Indian scripts at all.
+        services.AddHostedService<DatabaseEncodingCheck>();
+
         // AuthService itself is registered by AddParkNestApplication; only its infrastructure
         // collaborators (token signing, OTP delivery) are wired here.
         services.AddScoped<ITokenService, JwtTokenService>();
@@ -47,6 +54,7 @@ public static class DependencyInjection
         AddSms(services, configuration, environment);
         AddPayments(services, configuration, environment);
         AddPhotoStorage(services, configuration, environment);
+        AddMessaging(services, configuration);
 
         // Over-runs bill themselves while the session is still running rather than only at
         // checkout, which is the difference between discovering a renter cannot pay while their
@@ -132,6 +140,33 @@ public static class DependencyInjection
         // at startup and takes the entire API down, which is a far worse development experience
         // than the payment endpoints returning a clear "not configured".
         services.AddScoped<IPaymentGateway, UnconfiguredPaymentGateway>();
+    }
+
+    /// <summary>
+    /// How modules hear about each other's events.
+    ///
+    /// In-process by default, and that is not a stopgap: the modules are in one process, so a
+    /// broker between them buys nothing until they are not. Requiring RabbitMQ to run the app
+    /// would mean installing a broker to see a booking confirmation.
+    /// </summary>
+    private static void AddMessaging(IServiceCollection services, IConfiguration configuration)
+    {
+        var messaging = configuration.GetSection(MessagingOptions.SectionName).Get<MessagingOptions>()
+            ?? new MessagingOptions();
+
+        if (messaging.IsRabbitMq)
+        {
+            // Singleton: one connection for the process. Opening one per publish is a TCP
+            // handshake and an AMQP negotiation to say that a session ended.
+            services.AddSingleton<IEventBus, RabbitMqEventBus>();
+
+            // Only with the broker selected. Alongside the in-process bus this would deliver
+            // everything twice — once directly, once round the exchange.
+            services.AddHostedService<RabbitMqConsumerService>();
+            return;
+        }
+
+        services.AddSingleton<IEventBus, InProcessEventBus>();
     }
 
     /// <summary>

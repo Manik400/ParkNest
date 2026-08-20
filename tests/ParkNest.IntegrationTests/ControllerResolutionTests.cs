@@ -37,6 +37,7 @@ public sealed class ControllerResolutionTests
         typeof(AdminPayoutsController),
         typeof(AdminPricingController),
         typeof(RatingsController),
+        typeof(NotificationsController),
     };
 
     [Theory]

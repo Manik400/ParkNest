@@ -36,6 +36,7 @@ public sealed class OverstayMeter : IOverstayMeter
     private readonly IPricingService _pricing;
     private readonly IClock _clock;
     private readonly PlatformOptions _options;
+    private readonly IEventBus _events;
     private readonly ILogger<OverstayMeter> _logger;
 
     public OverstayMeter(
@@ -44,6 +45,7 @@ public sealed class OverstayMeter : IOverstayMeter
         IPricingService pricing,
         IClock clock,
         IOptions<PlatformOptions> options,
+        IEventBus events,
         ILogger<OverstayMeter> logger)
     {
         _db = db;
@@ -51,6 +53,7 @@ public sealed class OverstayMeter : IOverstayMeter
         _pricing = pricing;
         _clock = clock;
         _options = options.Value;
+        _events = events;
         _logger = logger;
     }
 
@@ -140,6 +143,11 @@ public sealed class OverstayMeter : IOverstayMeter
         _logger.LogInformation(
             "Metered {Amount} of overstay on booking {BookingId} ({Minutes} minutes over).",
             debit.Covered, booking.Id, overstayMinutes);
+
+        // Telling the renter while they can still act is the entire reason the meter runs at all.
+        await _events.PublishAsync(new OverstayCharged(
+            booking.Id, booking.RenterId, overstayMinutes, debit.Covered, debit.Shortfall),
+            cancellationToken);
 
         return true;
     }

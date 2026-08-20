@@ -20,6 +20,7 @@ public sealed class OverstayMeterTests : IDisposable
         _meter = new OverstayMeter(
             _h.Db, _h.Wallets, _h.PricingService, _h.Clock,
             Microsoft.Extensions.Options.Options.Create(_h.Options),
+            _h.Events,
             NullLogger<OverstayMeter>.Instance);
     }
 

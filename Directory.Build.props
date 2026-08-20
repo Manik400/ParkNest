@@ -1,0 +1,16 @@
+<Project>
+
+  <PropertyGroup>
+    <!--
+      Read every source file as UTF-8, explicitly.
+
+      Defensive rather than a fix for anything observed: the SDK in use already detects UTF-8 in
+      files without a byte-order mark, and the compiled strings were verified correct. But the
+      documented fallback when detection fails is the machine's ANSI codepage, and the failure is
+      silent and asymmetric — comments are unaffected while a string literal containing a rupee
+      sign becomes mojibake on a user's screen. One line to make it not depend on a default.
+    -->
+    <CodePage>65001</CodePage>
+  </PropertyGroup>
+
+</Project>

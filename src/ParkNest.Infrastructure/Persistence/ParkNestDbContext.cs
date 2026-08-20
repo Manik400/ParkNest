@@ -5,6 +5,7 @@ using ParkNest.Application.Abstractions;
 using ParkNest.Domain.Bookings;
 using ParkNest.Domain.Disputes;
 using ParkNest.Domain.Listings;
+using ParkNest.Domain.Notifications;
 using ParkNest.Domain.Payments;
 using ParkNest.Domain.Payouts;
 using ParkNest.Domain.Pricing;
@@ -37,6 +38,7 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
     public DbSet<Dispute> Disputes => Set<Dispute>();
     public DbSet<DisputeEvidence> DisputeEvidence => Set<DisputeEvidence>();
     public DbSet<Rating> Ratings => Set<Rating>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         Database.BeginTransactionAsync(cancellationToken);
