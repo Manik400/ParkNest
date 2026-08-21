@@ -39,6 +39,47 @@ public sealed class BookingService : IBookingService
         _options = options.Value;
     }
 
+    public async Task<BookingQuote> QuoteAsync(
+        Guid parkingSpaceId,
+        DateTimeOffset startTime,
+        int durationMinutes,
+        CancellationToken cancellationToken = default)
+    {
+        var space = await LoadBookableSpaceAsync(parkingSpaceId, cancellationToken);
+
+        // Price against the first vehicle type the space accepts; bands rarely differ by type
+        // within one space, and the renter's actual vehicle is validated at booking time.
+        var vehicleType = space.SupportedVehicleTypes.Select(v => v.VehicleType).First();
+        var band = await _pricing.GetBandAsync(space.City, space.Zone, vehicleType, cancellationToken);
+        var quote = _pricing.QuoteBooking(space.PricePerHour, durationMinutes);
+
+        var end = startTime.AddMinutes(quote.BilledMinutes);
+        var overstayRate = Money.Round(space.PricePerHour * band.OverstayMultiplier);
+
+        string? unavailable = null;
+        try
+        {
+            if (startTime < _clock.UtcNow.AddMinutes(-BackdatingToleranceMinutes))
+            {
+                throw new DomainException("A booking cannot start in the past.");
+            }
+
+            await EnsureWithinAvailabilityAsync(space, startTime, end, cancellationToken);
+            await EnsureNoOverlapAsync(space.Id, startTime, end, cancellationToken);
+        }
+        catch (DomainException ex)
+        {
+            // A quote reports the obstacle rather than throwing: the caller is asking "could I?",
+            // and the reason is the useful part of the answer.
+            unavailable = ex.Message;
+        }
+
+        return new BookingQuote(
+            space.Id, startTime, end, quote.BilledMinutes,
+            space.PricePerHour, quote.Amount, overstayRate,
+            unavailable is null, unavailable);
+    }
+
     public async Task<Booking> CreateBookingAsync(CreateBookingRequest request, CancellationToken cancellationToken = default)
     {
         // The renter is whoever holds the token. There is no way for a caller to book on someone
@@ -52,16 +93,7 @@ public sealed class BookingService : IBookingService
             return await GetBookingAsync(alreadyBookedId, cancellationToken);
         }
 
-        var space = await _db.ParkingSpaces
-            .Include(s => s.SupportedVehicleTypes)
-            .Include(s => s.AvailabilityWindows)
-            .FirstOrDefaultAsync(s => s.Id == request.ParkingSpaceId, cancellationToken)
-            ?? throw new DomainException($"Parking space {request.ParkingSpaceId} does not exist.");
-
-        if (space.Status != SpaceStatus.Published)
-        {
-            throw new DomainException("This space is not currently accepting bookings.");
-        }
+        var space = await LoadBookableSpaceAsync(request.ParkingSpaceId, cancellationToken);
 
         var vehicle = await _db.Vehicles.FirstOrDefaultAsync(v => v.Id == request.VehicleId, cancellationToken)
                       ?? throw new DomainException($"Vehicle {request.VehicleId} does not exist.");
@@ -77,6 +109,13 @@ public sealed class BookingService : IBookingService
         }
 
         var expectedEnd = request.StartTime.AddMinutes(request.DurationMinutes);
+
+        if (request.StartTime < _clock.UtcNow.AddMinutes(-BackdatingToleranceMinutes))
+        {
+            throw new DomainException("A booking cannot start in the past.");
+        }
+
+        await EnsureWithinAvailabilityAsync(space, request.StartTime, expectedEnd, cancellationToken);
         await EnsureNoOverlapAsync(space.Id, request.StartTime, expectedEnd, cancellationToken);
 
         var band = await _pricing.GetBandAsync(space.City, space.Zone, vehicle.Type, cancellationToken);
@@ -251,6 +290,77 @@ public sealed class BookingService : IBookingService
         return booking;
     }
 
+    /// <summary>
+    /// Loads a space with everything the booking rules need. Shared by quoting and booking so the
+    /// two can never disagree about what is bookable.
+    /// </summary>
+    private async Task<ParkingSpace> LoadBookableSpaceAsync(Guid spaceId, CancellationToken cancellationToken)
+    {
+        var space = await _db.ParkingSpaces
+            .Include(s => s.SupportedVehicleTypes)
+            .Include(s => s.AvailabilityWindows)
+            .FirstOrDefaultAsync(s => s.Id == spaceId, cancellationToken)
+            ?? throw new DomainException($"Parking space {spaceId} does not exist.");
+
+        if (space.Status != SpaceStatus.Published)
+        {
+            throw new DomainException("This space is not currently accepting bookings.");
+        }
+
+        if (space.SupportedVehicleTypes.Count == 0)
+        {
+            throw new DomainException("This space does not accept any vehicle type.");
+        }
+
+        return space;
+    }
+
+    /// <summary>
+    /// Rejects a booking that falls outside the host's published hours, or inside a blackout.
+    /// The windows were modelled and stored from the start but never actually checked, so a space
+    /// offered 09:00–17:00 could be booked at 3am.
+    /// </summary>
+    private async Task EnsureWithinAvailabilityAsync(
+        ParkingSpace space,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        CancellationToken cancellationToken)
+    {
+        var blackedOut = await _db.AvailabilityBlackouts.AnyAsync(
+            b => b.ParkingSpaceId == space.Id && b.From < end && start < b.To,
+            cancellationToken);
+
+        if (blackedOut)
+        {
+            throw new DomainException("The host has blocked out part of that window.");
+        }
+
+        TimeZoneInfo timeZone;
+        try
+        {
+            timeZone = TimeZoneInfo.FindSystemTimeZoneById(space.TimeZoneId);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            // Misconfigured listing rather than a bad request — surface it instead of silently
+            // falling back to a zone that would mis-price someone's day.
+            throw new DomainException($"This listing has an invalid time zone ({space.TimeZoneId}).");
+        }
+
+        // Availability is wall-clock in the space's own zone, so compare in local time.
+        var localStart = TimeZoneInfo.ConvertTime(start, timeZone).DateTime;
+        var localEnd = TimeZoneInfo.ConvertTime(end, timeZone).DateTime;
+
+        var windows = space.AvailabilityWindows.ToList();
+
+        if (!AvailabilityCalculator.IsCovered(windows, localStart, localEnd))
+        {
+            throw new DomainException(windows.Count == 0
+                ? "This space has no published availability yet."
+                : "That window falls outside the hours this space is available.");
+        }
+    }
+
     private async Task EnsureNoOverlapAsync(Guid spaceId, DateTimeOffset start, DateTimeOffset end, CancellationToken cancellationToken)
     {
         var overlaps = await _db.Bookings.AnyAsync(
@@ -267,4 +377,10 @@ public sealed class BookingService : IBookingService
     }
 
     private static string HoldKey(string idempotencyKey) => $"hold:{idempotencyKey}";
+
+    /// <summary>
+    /// Slack for clock skew between a phone and the server, so a "book now" tap does not fail
+    /// because the handset is a minute behind.
+    /// </summary>
+    private const int BackdatingToleranceMinutes = 5;
 }

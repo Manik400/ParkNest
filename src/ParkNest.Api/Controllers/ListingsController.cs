@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ParkNest.Application.Listings;
+using ParkNest.Application.Queries;
 using ParkNest.Domain.Common;
 
 namespace ParkNest.Api.Controllers;
@@ -11,12 +12,25 @@ public sealed class ListingsController : ControllerBase
 {
     private readonly IListingService _listings;
     private readonly ISpaceSearchService _search;
+    private readonly IParkNestQueries _queries;
 
-    public ListingsController(IListingService listings, ISpaceSearchService search)
+    public ListingsController(IListingService listings, ISpaceSearchService search, IParkNestQueries queries)
     {
         _listings = listings;
         _search = search;
+        _queries = queries;
     }
+
+    /// <summary>Every listing the caller hosts, drafts included.</summary>
+    [HttpGet("me")]
+    public async Task<ActionResult<IReadOnlyList<ListingSummary>>> Mine(CancellationToken cancellationToken) =>
+        Ok(await _queries.GetMyListingsAsync(cancellationToken));
+
+    /// <summary>Listing detail. Published listings are public; drafts are visible only to their host.</summary>
+    [AllowAnonymous]
+    [HttpGet("{spaceId:guid}")]
+    public async Task<ActionResult<ListingDetail>> Detail(Guid spaceId, CancellationToken cancellationToken) =>
+        Ok(await _queries.GetListingAsync(spaceId, cancellationToken));
 
     [HttpPost]
     public async Task<ActionResult<ListingResponse>> CreateDraft(

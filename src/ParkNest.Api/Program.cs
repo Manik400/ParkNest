@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
@@ -47,9 +48,29 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 
-builder.Services.AddControllers();
+// Enums cross the wire as their names, not their ordinals. Without this the API contradicts
+// itself — hand-mapped fields already return strings via ToString(), while raw enum properties
+// serialise as integers, so a client sees "role": 4 next to "status": "Completed". Names are also
+// the stable contract: reordering an enum member would silently change every stored ordinal.
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddProblemDetails();
+
+// The Angular dev server runs on its own origin. Only registered outside Production, where the
+// admin app is served same-origin and a permissive CORS policy would be pure attack surface.
+const string devCorsPolicy = "parknest-dev-clients";
+
+if (!builder.Environment.IsProduction())
+{
+    builder.Services.AddCors(options => options.AddPolicy(devCorsPolicy, policy => policy
+        .WithOrigins("http://localhost:4200", "https://localhost:4200")
+        .AllowAnyHeader()
+        .AllowAnyMethod()));
+}
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -112,6 +133,11 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+}
+
+if (!app.Environment.IsProduction())
+{
+    app.UseCors(devCorsPolicy);
 }
 
 app.UseAuthentication();

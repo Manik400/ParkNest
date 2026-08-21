@@ -4,7 +4,8 @@ name: Ledger Guard
 # mistake is a bug; here it is someone's money, so these paths get extra scrutiny.
 on:
   pull_request:
-    branches: [main]
+    # Deliberately unfiltered: a PR stacked onto another feature branch needs the same
+    # checks as one targeting main, and a branch filter silently skips them.
     paths:
       - 'src/ParkNest.Domain/Wallets/**'
       - 'src/ParkNest.Application/Wallets/**'

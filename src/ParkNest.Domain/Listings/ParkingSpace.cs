@@ -16,6 +16,13 @@ public class ParkingSpace
     /// <summary>Optional zone tier within the city (e.g. "cbd", "suburb") for finer price bands.</summary>
     public string? Zone { get; set; }
 
+    /// <summary>
+    /// IANA time zone the availability windows are expressed in. Windows are wall-clock ("open
+    /// 09:00–17:00"), so without this a multi-city rollout would silently interpret every host's
+    /// hours in the server's zone.
+    /// </summary>
+    public string TimeZoneId { get; set; } = "Asia/Kolkata";
+
     public double Latitude { get; set; }
     public double Longitude { get; set; }
 

@@ -26,6 +26,12 @@ public sealed class PlatformOptions
     /// <summary>Smallest recharge accepted.</summary>
     public decimal MinimumRechargeCredits { get; set; } = 100m;
 
+    /// <summary>
+    /// Largest recharge accepted in one go. Caps how much a fat-fingered or scripted order can
+    /// park in the escrow account, and limits the damage from a hijacked session.
+    /// </summary>
+    public decimal MaximumRechargeCredits { get; set; } = 25_000m;
+
     /// <summary>Ceiling on the city-configured overstay multiplier, so hosts can't gouge a stuck renter.</summary>
     public decimal MaxOverstayMultiplier { get; set; } = 2.0m;
 }

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Queries;
 using ParkNest.Application.Wallets;
 
 namespace ParkNest.Api.Controllers;
@@ -11,13 +12,27 @@ public sealed class WalletsController : ControllerBase
     private readonly IWalletService _wallets;
     private readonly ILedgerService _ledger;
     private readonly ICurrentUser _currentUser;
+    private readonly IParkNestQueries _queries;
 
-    public WalletsController(IWalletService wallets, ILedgerService ledger, ICurrentUser currentUser)
+    public WalletsController(
+        IWalletService wallets,
+        ILedgerService ledger,
+        ICurrentUser currentUser,
+        IParkNestQueries queries)
     {
         _wallets = wallets;
         _ledger = ledger;
         _currentUser = currentUser;
+        _queries = queries;
     }
+
+    /// <summary>The caller's credit history — the receipt trail behind their balance.</summary>
+    [HttpGet("me/transactions")]
+    public async Task<ActionResult<IReadOnlyList<LedgerEntrySummary>>> MyTransactions(
+        [FromQuery] int limit = 50,
+        [FromQuery] int offset = 0,
+        CancellationToken cancellationToken = default) =>
+        Ok(await _queries.GetMyLedgerAsync(limit, offset, cancellationToken));
 
     /// <summary>The caller's own wallet.</summary>
     [HttpGet("me")]
@@ -37,11 +52,10 @@ public sealed class WalletsController : ControllerBase
     }
 
     /// <summary>
-    /// Credits a wallet against real money received.
-    ///
-    /// Admin-gated deliberately. This must ultimately be driven by the payment aggregator's
-    /// webhook after a verified payment — a caller-invokable recharge mints credits from nothing.
-    /// Restricting it to admins closes that hole until the webhook exists (see ADR 0004).
+    /// Manual credit adjustment. Admin only, and no longer the way users buy credits — that runs
+    /// through <c>POST /api/payments/orders</c> and only completes on a signature-verified webhook
+    /// (ADR 0004). What remains here is the support tool: refunding a botched session, seeding a
+    /// test account, settling a dispute in the user's favour.
     /// </summary>
     [HttpPost("{userId:guid}/recharge")]
     public async Task<ActionResult<WalletResponse>> Recharge(

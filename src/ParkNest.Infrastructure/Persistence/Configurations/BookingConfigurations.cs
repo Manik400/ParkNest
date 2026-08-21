@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using ParkNest.Domain.Bookings;
 using ParkNest.Domain.Disputes;
+using ParkNest.Domain.Payments;
 using ParkNest.Domain.Payouts;
 using ParkNest.Domain.Pricing;
 using ParkNest.Domain.Ratings;
@@ -65,6 +66,27 @@ public sealed class PayoutConfiguration : IEntityTypeConfiguration<Payout>
         builder.Property(p => p.FailureReason).HasMaxLength(500);
 
         builder.HasIndex(p => new { p.HostId, p.Status });
+    }
+}
+
+public sealed class PaymentOrderConfiguration : IEntityTypeConfiguration<PaymentOrder>
+{
+    public void Configure(EntityTypeBuilder<PaymentOrder> builder)
+    {
+        builder.ToTable("payment_orders");
+        builder.HasKey(o => o.Id);
+
+        builder.Property(o => o.Amount).HasPrecision(18, 2);
+        builder.Property(o => o.Currency).HasMaxLength(3).IsRequired();
+        builder.Property(o => o.ProviderOrderId).HasMaxLength(120).IsRequired();
+        builder.Property(o => o.ProviderPaymentId).HasMaxLength(120);
+        builder.Property(o => o.FailureReason).HasMaxLength(500);
+
+        // Webhook lookup is by the gateway's id, and it must resolve to exactly one order.
+        builder.HasIndex(o => o.ProviderOrderId).IsUnique();
+        builder.HasIndex(o => new { o.UserId, o.Status });
+
+        builder.Ignore(o => o.IsSettled);
     }
 }
 

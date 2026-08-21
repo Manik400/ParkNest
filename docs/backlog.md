@@ -19,6 +19,9 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [x] CI: build/test, migrations applied to real PostGIS, schema invariants verified
 - [x] Conditional ledger guard on money paths + on-demand `@claude` PR review
 - [x] Phone + OTP authentication, ownership and role checks
+- [x] Availability windows + blackouts enforced at booking, per-space time zone
+- [x] Read endpoints: my bookings, hosting bookings, booking detail with ledger trail,
+      my listings, listing detail, wallet transaction history
 
 ### Next up
 - [x] **Auth & identity.** Phone + OTP login issuing JWTs; services take the acting user from the
@@ -29,18 +32,25 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [ ] **Refresh tokens and revocation.** Access tokens live 12 hours with no way to revoke one.
 - [ ] **Real SMS gateway.** Only the dev logging sender exists; startup deliberately fails in
       Production until a real one is wired.
-- [ ] **Recharge via aggregator webhook only.** Now admin-gated, which closes the "anyone can mint
-      credits" hole, but it still is not driven by a verified payment. See
-      [adr/0004](adr/0004-credits-are-not-a-wallet.md).
+- [x] **Recharge via aggregator webhook only.** Credits are now issued solely by a signature-verified
+      webhook, for the amount recorded server-side at order time, under an idempotency key derived
+      from the order id. See [adr/0004](adr/0004-credits-are-not-a-wallet.md).
+- [x] **A gateway that can actually be run.** `Payments:Provider=Sandbox` serves its own checkout
+      page and signs its own callbacks, so the whole path works with no account and no network;
+      refused in Production. See [adr/0006](adr/0006-sandbox-payment-gateway.md).
+- [ ] **Payment order expiry.** `PaymentOrderStatus.Cancelled` exists but nothing sets it, so an
+      abandoned checkout sits in `Created` forever. Wants a sweep.
 - [ ] Payout failure handling: compensating `Refund` transaction when the aggregator rejects
-- [ ] Availability enforcement — `AvailabilityWindow` and `AvailabilityBlackout` are modelled and
-      persisted but the booking path does not check them yet
+- [x] **Availability enforcement.** Windows and blackouts are now checked at booking time, in the
+      space's own IANA time zone. Overnight windows and 24/7 spaces are handled.
 - [ ] Integration test against a real PostGIS container, covering geo-search (currently untested —
       see [adr/0003](adr/0003-geo-search-without-nts.md))
 - [ ] Admin dispute console endpoints + resolution posting a compensating transaction
-- [ ] Razorpay/Cashfree integration behind an escrow/aggregator model
+- [ ] Razorpay integration exercised for real. The code is written and unit-tested, but it has
+      never talked to Razorpay's API — the sandbox proves the shape, not their particular JSON.
+      The escrow/aggregator arrangement itself is still unestablished.
 - [ ] Flutter app: renter + host, role-based views
-- [ ] Angular admin panel: pricing bands, disputes, payouts
+- [ ] Angular admin panel: pricing bands done; disputes and payouts still missing
 
 ## Phase 1 — Trust and scale hardening
 
@@ -77,5 +87,5 @@ Phases follow PRD §18. Items are ordered within each phase.
   renter still has nowhere to park. Needs a product decision, not just code.
 - **Cancellation policy.** Cancelling returns the full hold with no window or fee, so a host can
   be left with a dead slot at zero compensation.
-- **Timezones.** Availability windows use `TimeOnly` in the space's local time, but no timezone is
-  stored on the space. Single-city hides this; multi-city does not.
+- **Cancellation window.** Still no fee or cut-off, so a host can lose a slot at zero
+  compensation minutes before it starts.

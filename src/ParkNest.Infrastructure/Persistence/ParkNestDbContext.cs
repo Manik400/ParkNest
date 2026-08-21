@@ -5,6 +5,7 @@ using ParkNest.Application.Abstractions;
 using ParkNest.Domain.Bookings;
 using ParkNest.Domain.Disputes;
 using ParkNest.Domain.Listings;
+using ParkNest.Domain.Payments;
 using ParkNest.Domain.Payouts;
 using ParkNest.Domain.Pricing;
 using ParkNest.Domain.Ratings;
@@ -31,6 +32,7 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
     public DbSet<LedgerEntry> LedgerEntries => Set<LedgerEntry>();
     public DbSet<CityPricingConfig> CityPricingConfigs => Set<CityPricingConfig>();
     public DbSet<Payout> Payouts => Set<Payout>();
+    public DbSet<PaymentOrder> PaymentOrders => Set<PaymentOrder>();
     public DbSet<Dispute> Disputes => Set<Dispute>();
     public DbSet<DisputeEvidence> DisputeEvidence => Set<DisputeEvidence>();
     public DbSet<Rating> Ratings => Set<Rating>();
