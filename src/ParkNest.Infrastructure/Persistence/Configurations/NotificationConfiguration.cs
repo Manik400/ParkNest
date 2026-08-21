@@ -22,3 +22,23 @@ public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notific
         builder.Ignore(n => n.IsRead);
     }
 }
+
+public sealed class DeviceTokenConfiguration : IEntityTypeConfiguration<DeviceToken>
+{
+    public void Configure(EntityTypeBuilder<DeviceToken> builder)
+    {
+        builder.ToTable("device_tokens");
+        builder.HasKey(d => d.Id);
+
+        builder.Property(d => d.Token).HasMaxLength(512).IsRequired();
+        builder.Property(d => d.Platform).HasMaxLength(16).IsRequired();
+
+        // Unique on the token, because the token identifies an install rather than an account.
+        // Two rows for one handset would push the same message twice, and would let a device keep
+        // receiving a previous signed-in user's bookings.
+        builder.HasIndex(d => d.Token).IsUnique();
+
+        // Every send starts with "the tokens for these users".
+        builder.HasIndex(d => d.UserId);
+    }
+}

@@ -39,6 +39,19 @@ public sealed class LedgerService : ILedgerService
         string? description = null,
         CancellationToken cancellationToken = default)
     {
+        // Whoever owns the transaction owns the retry.
+        //
+        // Under an ambient transaction — a caller that wrapped several writes to make them one
+        // unit — retrying here is not merely useless but harmful: Postgres marks a transaction
+        // aborted after a failed statement, so every command that follows fails too, including the
+        // query this method would use to recover. The owner rolls back and repeats the whole unit
+        // instead, which is the only correct place to decide what "again" means.
+        if (_db.HasActiveTransaction)
+        {
+            return await TryPostAsync(
+                type, idempotencyKey, postings, bookingId, description, new List<object>(), cancellationToken);
+        }
+
         for (var attempt = 1; ; attempt++)
         {
             // Local to the attempt, so nothing about retrying depends on this service being

@@ -27,6 +27,8 @@ public static class DependencyInjection
         services.AddScoped<Disputes.IDisputeService, Disputes.DisputeService>();
         services.AddScoped<Ratings.IRatingService, Ratings.RatingService>();
         services.AddScoped<Notifications.INotificationService, Notifications.NotificationService>();
+        services.AddScoped<Notifications.IDeviceTokenService, Notifications.DeviceTokenService>();
+        services.AddScoped<Users.IKycService, Users.KycService>();
 
         // One class handling five events is registered once per event type. Registered as the
         // interface rather than the class so the bus can resolve every subscriber to a given fact
@@ -38,6 +40,7 @@ public static class DependencyInjection
         services.AddScoped<IEventHandler<BookingCancelled>>(sp => sp.GetRequiredService<Notifications.BookingNotificationHandlers>());
         services.AddScoped<IEventHandler<OverstayCharged>>(sp => sp.GetRequiredService<Notifications.BookingNotificationHandlers>());
         services.AddScoped<IEventHandler<DisputeResolved>>(sp => sp.GetRequiredService<Notifications.BookingNotificationHandlers>());
+        services.AddScoped<IEventHandler<KycReviewed>>(sp => sp.GetRequiredService<Notifications.BookingNotificationHandlers>());
 
         return services;
     }

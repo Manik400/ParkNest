@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api.dart';
@@ -25,9 +26,10 @@ class WalletScreen extends StatefulWidget {
 }
 
 class _WalletScreenState extends State<WalletScreen> {
-  late Future<({Wallet wallet, List<LedgerEntrySummary> entries})> _data;
+  late Future<({Wallet wallet, List<LedgerEntrySummary> entries, KycState kyc})> _data;
 
   bool _awaitingPayment = false;
+  bool _cashingOut = false;
 
   @override
   void didChangeDependencies() {
@@ -39,10 +41,14 @@ class _WalletScreenState extends State<WalletScreen> {
     final api = Services.of(context);
 
     setState(() {
-      _data = Future.wait([api.myWallet(), api.myTransactions()])
+      // The verification state is fetched with the balance because cash-out is the only thing it
+      // affects, and a screen that offers a button the server will refuse is worse than one that
+      // explains why the button is not there yet.
+      _data = Future.wait([api.myWallet(), api.myTransactions(), api.kycState()])
           .then((results) => (
                 wallet: results[0] as Wallet,
                 entries: results[1] as List<LedgerEntrySummary>,
+                kyc: results[2] as KycState,
               ));
     });
   }
@@ -50,6 +56,64 @@ class _WalletScreenState extends State<WalletScreen> {
   Future<void> _reload() async {
     _load();
     await _data;
+  }
+
+  /// Asks for the money to be sent to the host's bank.
+  ///
+  /// The credits leave the earning balance the moment this is accepted, before any transfer has
+  /// been made — so they cannot be spent twice while one is in flight — and come back through a
+  /// compensating refund if the transfer is later rejected.
+  Future<void> _cashOut(double earning) async {
+    final api = Services.of(context);
+    final controller = TextEditingController(text: earning.toStringAsFixed(0));
+
+    final amount = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cash out earnings'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Credits', prefixText: '\u20b9 '),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'The credits leave your earnings straight away. An operator makes the transfer, '
+              'and if their bank rejects it the credits come back.',
+              style: TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Not now')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, double.tryParse(controller.text.trim())),
+            child: const Text('Request'),
+          ),
+        ],
+      ),
+    );
+
+    if (amount == null || amount <= 0 || !mounted) return;
+
+    setState(() => _cashingOut = true);
+
+    try {
+      // A fresh key per request: this is the client's promise that a retried tap is the same
+      // withdrawal, not a second one.
+      await api.cashOut(amount, 'cashout-${DateTime.now().microsecondsSinceEpoch}');
+      if (mounted) showMessage(context, 'Requested. You will be told when it is paid.');
+      _load();
+    } on ApiException catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => _cashingOut = false);
+    }
   }
 
   Future<void> _addCredits() async {
@@ -142,22 +206,26 @@ class _WalletScreenState extends State<WalletScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Wallet'), actions: const [HomeMenuButton()]),
+      appBar: AppBar(
+        title: const Text('Wallet'),
+        actions: const [NotificationsBell(), HomeMenuButton()],
+      ),
       body: RefreshIndicator(
         onRefresh: _reload,
-        child: FutureBuilder<({Wallet wallet, List<LedgerEntrySummary> entries})>(
+        child: FutureBuilder<({Wallet wallet, List<LedgerEntrySummary> entries, KycState kyc})>(
           future: _data,
-          builder: (context, snapshot) => AsyncView<({Wallet wallet, List<LedgerEntrySummary> entries})>(
+          builder: (context, snapshot) =>
+              AsyncView<({Wallet wallet, List<LedgerEntrySummary> entries, KycState kyc})>(
             snapshot: snapshot,
             onRetry: _reload,
-            builder: (data) => _build(data.wallet, data.entries),
+            builder: (data) => _build(data.wallet, data.entries, data.kyc),
           ),
         ),
       ),
     );
   }
 
-  Widget _build(Wallet wallet, List<LedgerEntrySummary> entries) {
+  Widget _build(Wallet wallet, List<LedgerEntrySummary> entries, KycState kyc) {
     final scheme = Theme.of(context).colorScheme;
 
     return ListView(
@@ -212,6 +280,18 @@ class _WalletScreenState extends State<WalletScreen> {
               : const Icon(Icons.add),
           label: Text(_awaitingPayment ? 'Waiting for the payment…' : 'Add credits'),
         ),
+
+        // Only for someone who has actually earned. A renter has no use for a cash-out button,
+        // and an empty one invites the question of what it would pay out.
+        if (wallet.earning > 0) ...[
+          const SizedBox(height: 16),
+          _CashOutCard(
+            earning: wallet.earning,
+            kyc: kyc,
+            busy: _cashingOut,
+            onCashOut: _cashOut,
+          ),
+        ],
 
         const SizedBox(height: 24),
         Text('History', style: Theme.of(context).textTheme.titleMedium),
@@ -340,6 +420,60 @@ class _AmountSheetState extends State<_AmountSheet> {
             onPressed: amount <= 0 ? null : () => Navigator.pop(context, amount),
             child: const Text('Continue to payment'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Earnings, and the one thing standing between them and a bank account.
+class _CashOutCard extends StatelessWidget {
+  const _CashOutCard({
+    required this.earning,
+    required this.kyc,
+    required this.busy,
+    required this.onCashOut,
+  });
+
+  final double earning;
+  final KycState kyc;
+  final bool busy;
+  final Future<void> Function(double earning) onCashOut;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return SectionCard(
+      title: 'Your earnings',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '${formatCredits(earning)} earned from hosting.',
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          if (kyc.canCashOut)
+            FilledButton.icon(
+              onPressed: busy ? null : () => onCashOut(earning),
+              icon: const Icon(Icons.account_balance_outlined),
+              label: Text(busy ? 'Requesting\u2026' : 'Cash out'),
+            )
+          else ...[
+            Text(
+              kyc.isPending
+                  ? 'Your identity check is with a reviewer. Cash-out opens as soon as it clears.'
+                  : 'Money leaving the platform needs an identity check first — the credits sit in '
+                      'escrow, not in a wallet we issue.',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton(
+              onPressed: () => context.push('/kyc'),
+              child: Text(kyc.isPending ? 'See your submission' : 'Verify your identity'),
+            ),
+          ],
         ],
       ),
     );

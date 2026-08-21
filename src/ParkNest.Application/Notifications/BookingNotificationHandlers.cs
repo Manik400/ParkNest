@@ -19,7 +19,8 @@ public sealed class BookingNotificationHandlers :
     IEventHandler<SessionEnded>,
     IEventHandler<BookingCancelled>,
     IEventHandler<OverstayCharged>,
-    IEventHandler<DisputeResolved>
+    IEventHandler<DisputeResolved>,
+    IEventHandler<KycReviewed>
 {
     private readonly INotificationService _notifications;
     private readonly ILogger<BookingNotificationHandlers> _logger;
@@ -144,6 +145,21 @@ public sealed class BookingNotificationHandlers :
                 outcome,
                 @event.BookingId), cancellationToken);
         }
+    }
+
+    public async Task HandleAsync(KycReviewed @event, CancellationToken cancellationToken = default)
+    {
+        // Both outcomes are told, and the refusal carries its reason. A host whose verification
+        // silently failed will try to cash out, be refused, and open a support ticket to find out
+        // something we already knew.
+        await _notifications.CreateAsync(new CreateNotification(
+            @event.UserId,
+            @event.Verified ? "kyc.verified" : "kyc.rejected",
+            @event.Verified ? "You are verified" : "Verification could not be completed",
+            @event.Verified
+                ? "Cash-out is now open on your earnings."
+                : @event.Reason ?? "Send your details again with a clearer photograph.",
+            null), cancellationToken);
     }
 
     private static string Credits(decimal amount) => $"₹{amount:0.00}";

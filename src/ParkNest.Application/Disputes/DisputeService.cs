@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Common;
+using ParkNest.Application.Options;
 using ParkNest.Application.Wallets;
 using ParkNest.Domain.Bookings;
 using ParkNest.Domain.Common;
@@ -16,7 +19,18 @@ public sealed class DisputeService : IDisputeService
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
     private readonly IEventBus _events;
+    private readonly IPhotoStorage _storage;
+    private readonly StorageOptions _storageOptions;
     private readonly ILogger<DisputeService> _logger;
+
+    /// <summary>
+    /// How many photographs one dispute may carry.
+    ///
+    /// A cap rather than a limit anyone will hit honestly: six pictures of a blocked driveway is
+    /// already more than a reviewer will look at, and without a ceiling the evidence endpoint is
+    /// an authenticated upload of unbounded size.
+    /// </summary>
+    private const int MaxEvidencePerDispute = 6;
 
     public DisputeService(
         IParkNestDbContext db,
@@ -25,6 +39,8 @@ public sealed class DisputeService : IDisputeService
         ICurrentUser currentUser,
         IClock clock,
         IEventBus events,
+        IPhotoStorage storage,
+        IOptions<StorageOptions> storageOptions,
         ILogger<DisputeService> logger)
     {
         _db = db;
@@ -33,6 +49,8 @@ public sealed class DisputeService : IDisputeService
         _currentUser = currentUser;
         _clock = clock;
         _events = events;
+        _storage = storage;
+        _storageOptions = storageOptions.Value;
         _logger = logger;
     }
 
@@ -106,6 +124,62 @@ public sealed class DisputeService : IDisputeService
         await _events.PublishAsync(new DisputeRaised(
             dispute.Id, booking.Id, userId, booking.RenterId, booking.HostId, dispute.Reason),
             cancellationToken);
+
+        return await ViewAsync(dispute.Id, cancellationToken);
+    }
+
+    public async Task<DisputeView> AddEvidenceAsync(
+        Guid disputeId,
+        PhotoUpload upload,
+        string? note,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_storage.IsConfigured)
+        {
+            throw new DomainException("Evidence storage is not configured on this deployment.");
+        }
+
+        var (dispute, booking) = await LoadAsync(disputeId, cancellationToken);
+        RequireParty(booking);
+
+        // Only while it can still change the outcome. Attaching a photograph to a dispute that has
+        // been decided reads as a way to reopen it, and it is not one.
+        RequireUndecided(dispute);
+
+        if (upload.Length <= 0)
+        {
+            throw new DomainException("That file is empty.");
+        }
+
+        if (upload.Length > _storageOptions.MaxPhotoBytes)
+        {
+            throw new DomainException(
+                $"Evidence must be under {_storageOptions.MaxPhotoBytes / (1024 * 1024)} MB.");
+        }
+
+        if (dispute.Evidence.Count >= MaxEvidencePerDispute)
+        {
+            throw new DomainException($"A dispute can carry {MaxEvidencePerDispute} attachments.");
+        }
+
+        // Sniffed rather than trusted, as everywhere else we store a file: this is served back
+        // from our own origin to an operator's browser.
+        var extension = await ImageContent.SniffExtensionAsync(upload.Content, cancellationToken);
+        var url = await _storage.SaveAsync(upload.Content, extension, cancellationToken);
+
+        // Added through the set rather than through the parent's collection.
+        //
+        // Both look equivalent and are not: a child discovered on a tracked parent's navigation,
+        // already carrying a key, is taken by EF for an existing row and staged as an UPDATE —
+        // which then fails, having matched nothing. Going through the set states the intent.
+        _db.DisputeEvidence.Add(new DisputeEvidence
+        {
+            DisputeId = dispute.Id,
+            Url = url,
+            Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
+        });
+
+        await _db.SaveChangesAsync(cancellationToken);
 
         return await ViewAsync(dispute.Id, cancellationToken);
     }

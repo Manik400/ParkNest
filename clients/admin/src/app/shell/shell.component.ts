@@ -25,6 +25,7 @@ import { AuthService } from '../core/auth.service';
             {{ auth.isAdmin() ? 'Disputes' : 'My disputes' }}
           </a>
           @if (auth.isAdmin()) {
+            <a routerLink="/kyc" routerLinkActive="active">Identity checks</a>
             <a routerLink="/payouts" routerLinkActive="active">Payouts</a>
             <a routerLink="/pricing" routerLinkActive="active">Pricing bands</a>
           }

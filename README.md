@@ -17,28 +17,31 @@ rather than more code.
 
 | Area | State |
 |---|---|
-| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 169 tests green |
+| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 266 tests green |
 | Pricing rules engine (city bands, billing increments, overstay multiplier) | Implemented |
 | Booking lifecycle + Tier 1 app-confirmed detection | Implemented |
 | Listings + PostGIS geo-search | Implemented |
 | Auth / identity | Phone + OTP → JWT; every endpoint authorised |
+| KYC | Host submits document and photograph; operator verifies; verification is what opens cash-out |
 | Sessions | Refresh tokens, rotating, with replay detection; sign-out revokes server-side |
 | Rate limiting | Per phone number and per caller, on the OTP endpoints and the payment webhook |
 | Availability windows and blackouts | Enforced at booking, per-space time zone |
 | Credit purchase (payments) | Built. Sandbox gateway runs locally with no account; Razorpay wired for real money |
-| Disputes | Raise, review, uphold or reject; upholding posts a compensating transaction |
-| Payouts | Cash-out, plus recording the transfer paid or failed — failure refunds the host |
-| Listing photos | Upload, list, delete. Local disk by default, behind a storage interface |
+| Disputes | Raise with photo evidence, review, uphold or reject; upholding posts a compensating transaction |
+| Payouts | Cash-out from the app, gated on KYC and trust score; recording the transfer paid or failed — failure refunds the host |
+| Listing photos | Upload, list, delete, in both clients. Local disk by default, behind a storage interface |
 | Cancellation policy | Free outside a configurable window; inside it the host is compensated |
-| Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, disputes, payouts, pricing bands |
+| Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, disputes, payouts, pricing bands, identity checks |
 | Background overstay meter | Bills an over-run while it runs, not just at checkout |
-| Tier 2 detection | QR code + geofence, opt-in per space. API side only; no scanner in the app yet |
-| Ratings and trust score | Both parties rate a finished session; scores feed the trust score |
+| Tier 2 detection | QR code + geofence, opt-in per space. Host prints the sticker from the app; renters scan it |
+| Ratings and trust score | Both parties rate a finished session; the score gates cash-out |
 | Wallet concurrency | Row-locked, retried, and tested against real contention |
 | Events and notifications | Published in-process by default, RabbitMQ when configured; stored per user |
+| Push | FCM v1 off the same stored notification. `Push:Provider=None` by default — no Firebase project needed |
 | SignalR | Live session, overstay and wallet updates on a per-user group |
 | Metrics | Prometheus at `/metrics`, plus an hourly ledger reconciliation gauge |
-| Flutter renter + host app | Sign-in, map search from your location, quote, book, session, wallet, vehicles, listing a space, disputes |
+| Dashboards and alerts | Provisioned Grafana, Prometheus and Alertmanager in `docker compose`. See [ops/](ops/README.md) |
+| Flutter renter + host app | Sign-in, map search from your location, quote, book, session, wallet, vehicles, listing a space, disputes, QR check-in, ratings, notifications |
 
 ## Layout
 
@@ -54,6 +57,7 @@ tests/
 clients/
   admin/                    Angular 18 admin and host console.
   mobile/                   Flutter renter and host app.
+ops/                        Prometheus scrape config, alert rules, provisioned Grafana dashboard.
 docs/                       Spec, ADRs, work log, backlog.
 ```
 
@@ -81,7 +85,7 @@ nothing in the API log to explain it.
 Swagger is at `/swagger` in Development; `/health` is always available.
 
 ```bash
-dotnet test tests/ParkNest.UnitTests  # 169 tests, no Docker required
+dotnet test tests/ParkNest.UnitTests  # 266 tests, no Docker required
 ```
 
 Tests run on in-memory SQLite, so they need no container and finish in about a second.
@@ -151,10 +155,25 @@ Finding parking asks for location, and works without it — permission refused j
 come from the city centre instead, with a banner saying so. Maps are OpenStreetMap tiles, so no
 key or billing account is needed.
 
+Checking in scans the sticker at the space when there is one. The camera is asked for only at
+that moment, the location fix that corroborates it is asked for precisely, and if either is
+refused the screen falls back to "I have parked" — which is a Tier 1 check-in, recorded honestly
+as the renter's word. Hosts get the QR for their own space by tapping it under **Hosting**.
+
 ```bash
-flutter test                         # 18 tests
+flutter test                         # 33 tests
 flutter analyze
 ```
+
+## Watching it run
+
+```bash
+docker compose up -d prometheus alertmanager alert-sink grafana
+```
+
+Grafana at <http://localhost:3000> opens on the dashboard without a login. It scrapes the API on
+the host, so start the API first — details and the one number worth alerting on are in
+[ops/](ops/README.md).
 
 ## Buying credits
 
@@ -180,6 +199,23 @@ changes nothing but the edge of the system. See
 Platform economics are configuration, never constants — see the `Platform` section of
 `src/ParkNest.Api/appsettings.json` for commission rate, billing increment, grace period, the
 cash-out floor, and the cancellation window and fee. City price bands are database rows managed through `/api/admin/pricing`.
+
+Push notifications are off by default and stay off in Production unless configured. Every message
+is stored and pushed down the socket regardless — Firebase only adds the buzz on a handset that is
+not connected — so a deployment with no Firebase project loses nothing but the buzz.
+
+```jsonc
+// src/ParkNest.Api/appsettings.json
+"Push": {
+  "Provider": "Firebase",             // "None" stores and sockets, without pushing
+  "ProjectId": "parknest-12345",
+  "ServiceAccountKeyPath": "/run/secrets/firebase.json"   // never commit the key
+}
+```
+
+The app has no Firebase wiring yet, so nothing registers a device token in practice. The
+endpoints (`POST /api/devices`, `POST /api/devices/unregister`) and the sender are built and
+tested; what is missing is a Firebase project and `google-services.json`.
 
 ## A note on the database
 

@@ -624,3 +624,232 @@ class CancellationTerms {
   /// After this moment cancelling starts costing something.
   final DateTime freeUntil;
 }
+
+/// One stored notification. The socket and the push are how a message arrives quickly; this row
+/// is how it arrives at all — a phone in a basement misses the live update and nothing else.
+class AppNotification {
+  const AppNotification({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.body,
+    required this.isRead,
+    required this.createdAt,
+    this.subjectId,
+  });
+
+  factory AppNotification.fromJson(Map<String, dynamic> json) => AppNotification(
+        id: json['id'] as String,
+        kind: json['kind'] as String,
+        title: json['title'] as String,
+        body: json['body'] as String,
+        subjectId: json['subjectId'] as String?,
+        isRead: json['isRead'] as bool,
+        createdAt: _date(json['createdAt']),
+      );
+
+  final String id;
+  final String kind;
+  final String title;
+  final String body;
+
+  /// What the notification is about — a booking, for everything the app currently sends. Null
+  /// when there is nothing to open, in which case the row is not tappable.
+  final String? subjectId;
+
+  final bool isRead;
+  final DateTime createdAt;
+}
+
+/// Whether this booking is still waiting on the caller's rating, and who it would be about.
+///
+/// Asked rather than worked out on the handset: "finished, not yet rated by you, and you were a
+/// party to it" is three rules that live on the server, and a second copy here would eventually
+/// offer a form the API then refuses.
+class RatingPrompt {
+  const RatingPrompt({
+    required this.bookingId,
+    required this.canRate,
+    this.aboutUserId,
+    this.reason,
+  });
+
+  factory RatingPrompt.fromJson(Map<String, dynamic> json) => RatingPrompt(
+        bookingId: json['bookingId'] as String,
+        canRate: json['canRate'] as bool,
+        aboutUserId: json['aboutUserId'] as String?,
+        reason: json['reason'] as String?,
+      );
+
+  final String bookingId;
+  final bool canRate;
+  final String? aboutUserId;
+
+  /// Why not, when [canRate] is false. Worth showing for "you have already rated this" and worth
+  /// swallowing for the rest.
+  final String? reason;
+}
+
+class Rating {
+  const Rating({
+    required this.id,
+    required this.bookingId,
+    required this.toUserId,
+    required this.score,
+    required this.createdAt,
+    this.comment,
+  });
+
+  factory Rating.fromJson(Map<String, dynamic> json) => Rating(
+        id: json['id'] as String,
+        bookingId: json['bookingId'] as String,
+        toUserId: json['toUserId'] as String,
+        score: json['score'] as int,
+        comment: json['comment'] as String?,
+        createdAt: _date(json['createdAt']),
+      );
+
+  final String id;
+  final String bookingId;
+  final String toUserId;
+  final int score;
+  final String? comment;
+  final DateTime createdAt;
+}
+
+/// What a user's counterparties have said about them.
+class Reputation {
+  const Reputation({
+    required this.userId,
+    required this.trustScore,
+    required this.ratingCount,
+    required this.recent,
+    this.averageScore,
+  });
+
+  factory Reputation.fromJson(Map<String, dynamic> json) => Reputation(
+        userId: json['userId'] as String,
+        trustScore: json['trustScore'] as int,
+        averageScore: (json['averageScore'] as num?)?.toDouble(),
+        ratingCount: json['ratingCount'] as int,
+        recent: (json['recent'] as List<dynamic>)
+            .map((e) => Rating.fromJson(e as Map<String, dynamic>))
+            .toList(),
+      );
+
+  final String userId;
+
+  /// The 0-100 signal the platform acts on, which is not the star average: it starts from a
+  /// presumption of good faith and moves on conduct, where the average only reports opinions.
+  final int trustScore;
+
+  /// Null for someone nobody has rated. Deliberately not zero — "0.0 stars" against a new host
+  /// reads as terrible, which is the opposite of what an absence of ratings means.
+  final double? averageScore;
+
+  final int ratingCount;
+  final List<Rating> recent;
+}
+
+/// The secret behind the sticker at a space. Host only, and the reason the app draws the QR
+/// itself rather than fetching an image: a token in a URL ends up in caches and logs.
+class CheckInCode {
+  const CheckInCode({required this.spaceId, required this.token});
+
+  factory CheckInCode.fromJson(Map<String, dynamic> json) => CheckInCode(
+        spaceId: json['spaceId'] as String,
+        token: json['token'] as String,
+      );
+
+  final String spaceId;
+  final String token;
+}
+
+/// A photograph on a listing.
+class ListingPhoto {
+  const ListingPhoto({required this.id, required this.url, required this.sortOrder});
+
+  factory ListingPhoto.fromJson(Map<String, dynamic> json) => ListingPhoto(
+        id: json['id'] as String,
+        url: json['url'] as String,
+        sortOrder: json['sortOrder'] as int,
+      );
+
+  final String id;
+
+  /// Relative to the API host — the server decides where photos are served from, and a client
+  /// that assembled the path itself would break the day storage moves off local disk.
+  final String url;
+
+  final int sortOrder;
+}
+
+/// One attempt at proving who you are.
+class KycSubmission {
+  const KycSubmission({
+    required this.id,
+    required this.legalName,
+    required this.documentType,
+    required this.documentLast4,
+    required this.status,
+    required this.submittedAt,
+    this.documentPhotoUrl,
+    this.payoutAccountLast4,
+    this.reviewedAt,
+    this.rejectionReason,
+  });
+
+  factory KycSubmission.fromJson(Map<String, dynamic> json) => KycSubmission(
+        id: json['id'] as String,
+        legalName: json['legalName'] as String,
+        documentType: json['documentType'] as String,
+        documentLast4: json['documentLast4'] as String,
+        documentPhotoUrl: json['documentPhotoUrl'] as String?,
+        payoutAccountLast4: json['payoutAccountLast4'] as String?,
+        status: json['status'] as String,
+        submittedAt: _date(json['submittedAt']),
+        reviewedAt: _dateOrNull(json['reviewedAt']),
+        rejectionReason: json['rejectionReason'] as String?,
+      );
+
+  final String id;
+  final String legalName;
+  final String documentType;
+
+  /// The last four characters of the number. The whole of it never leaves the handset.
+  final String documentLast4;
+
+  final String? documentPhotoUrl;
+  final String? payoutAccountLast4;
+  final String status;
+  final DateTime submittedAt;
+  final DateTime? reviewedAt;
+
+  /// Why it was refused, when it was. The one thing a rejected host actually needs.
+  final String? rejectionReason;
+}
+
+/// Where the signed-in host stands with identity verification.
+class KycState {
+  const KycState({required this.status, required this.canCashOut, this.latest});
+
+  factory KycState.fromJson(Map<String, dynamic> json) => KycState(
+        status: json['status'] as String,
+        canCashOut: json['canCashOut'] as bool,
+        latest: json['latest'] == null
+            ? null
+            : KycSubmission.fromJson(json['latest'] as Map<String, dynamic>),
+      );
+
+  final String status;
+
+  /// Answered by the server rather than inferred from [status], because cash-out is its rule.
+  final bool canCashOut;
+
+  final KycSubmission? latest;
+
+  bool get isPending => status == 'Pending';
+  bool get isVerified => status == 'Verified';
+  bool get isRejected => status == 'Rejected';
+}
+

@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import '../core/api.dart';
 import '../core/api_client.dart';
 import '../core/formatting.dart';
+import '../core/location.dart';
 import '../core/models.dart';
 import '../widgets/common.dart';
+import 'scan_check_in_screen.dart';
 
 /// One booking: the session controls, the money, and the ledger trail behind it.
 ///
@@ -47,12 +51,44 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     }
   }
 
-  Future<void> _checkIn() => _run(() => Services.of(context).startSession(widget.bookingId));
+  Future<void> _checkIn({CheckInProof? proof}) =>
+      _run(() => Services.of(context).startSession(widget.bookingId, proof: proof));
 
-  Future<void> _checkOut() => _run(() async {
-        final outcome = await Services.of(context).endSession(widget.bookingId);
+  Future<void> _checkOut({CheckInProof? proof}) => _run(() async {
+        final outcome = await Services.of(context).endSession(widget.bookingId, proof: proof);
         if (mounted) setState(() => _outcome = outcome);
       });
+
+  /// Tier 2: the sticker's code plus where the phone was when it read it.
+  ///
+  /// Both halves or nothing. A scan with no fix is not a weaker proof the server could accept
+  /// with a caveat — it is a photographed sticker, which is exactly what the geofence exists to
+  /// catch — so a failed fix falls back to the honest Tier 1 tap rather than half a Tier 2 claim.
+  Future<void> _scanThen(Future<void> Function({CheckInProof? proof}) action) async {
+    final token = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const ScanCheckInScreen()),
+    );
+
+    if (token == null || !mounted) return;
+
+    setState(() => _busy = true);
+    final fix = await const LocationService().current(precise: true);
+    if (!mounted) return;
+    setState(() => _busy = false);
+
+    if (!fix.isSuccess) {
+      showError(context, '${fix.message} Confirming in the app works without it.');
+      return;
+    }
+
+    await action(
+      proof: CheckInProof(
+        token: token,
+        latitude: fix.latitude!,
+        longitude: fix.longitude!,
+      ),
+    );
+  }
 
   Future<void> _cancel() async {
     final api = Services.of(context);
@@ -227,6 +263,18 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
             label: const Text('I have parked'),
           ),
           const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => _scanThen(_checkIn),
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('Scan the code at the space'),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Scanning records that you were there, which is worth more than your word if the '
+            'session is ever disputed. Not every space has a sticker.',
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
           OutlinedButton(
             onPressed: _busy ? null : _cancel,
             child: const Text('Cancel booking'),
@@ -239,12 +287,26 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
             label: const Text('I am leaving'),
           ),
           const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => _scanThen(_checkOut),
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('Scan on the way out'),
+          ),
+          const SizedBox(height: 8),
           Text(
             'Checking out measures the real duration and settles it. Staying past '
             '${formatTime(summary.expectedEndTime)} bills the overstay automatically.',
             style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
           ),
           const SizedBox(height: 20),
+        ],
+
+        // Only for a session that happened. The server decides whether a rating is still owed —
+        // "finished, and you have not already had your say" is its rule, and a copy of it here
+        // would eventually offer a form the API refuses.
+        if (summary.status != 'Held' && summary.status != 'Cancelled') ...[
+          _RatingSection(bookingId: widget.bookingId),
+          const SizedBox(height: 16),
         ],
 
         SectionCard(
@@ -357,4 +419,139 @@ class _LedgerRow extends StatelessWidget {
 
   static String humanise(String value) =>
       value.replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}');
+}
+
+/// The rating a finished session is still waiting on, and the way to give it.
+///
+/// Its own widget with its own request because it must not delay the booking: the ledger and the
+/// settlement are what the renter opened this screen for, and a prompt that has not loaded yet is
+/// no reason to hold them back.
+class _RatingSection extends StatefulWidget {
+  const _RatingSection({required this.bookingId});
+
+  final String bookingId;
+
+  @override
+  State<_RatingSection> createState() => _RatingSectionState();
+}
+
+class _RatingSectionState extends State<_RatingSection> {
+  Future<RatingPrompt>? _prompt;
+  int _score = 0;
+  bool _submitting = false;
+  bool _submitted = false;
+
+  final TextEditingController _comment = TextEditingController();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _prompt ??= Services.of(context).ratingPrompt(widget.bookingId);
+  }
+
+  @override
+  void dispose() {
+    _comment.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final api = Services.of(context);
+    setState(() => _submitting = true);
+
+    try {
+      await api.rate(widget.bookingId, _score, comment: _comment.text.trim());
+      if (mounted) setState(() => _submitted = true);
+    } on ApiException catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    if (_submitted) {
+      return SectionCard(
+        title: 'Your rating',
+        child: Text(
+          'Thank you — it counts towards their trust score.',
+          style: TextStyle(color: scheme.onSurfaceVariant),
+        ),
+      );
+    }
+
+    return FutureBuilder<RatingPrompt>(
+      future: _prompt,
+      builder: (context, snapshot) {
+        final prompt = snapshot.data;
+
+        // A prompt that failed to load, or has not arrived, shows nothing at all. There is no
+        // useful action for the user in "could not check whether you owe a rating".
+        if (prompt == null) {
+          return const SizedBox.shrink();
+        }
+
+        if (!prompt.canRate) {
+          return prompt.aboutUserId == null
+              ? const SizedBox.shrink()
+              : SectionCard(
+                  title: 'Rating',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        prompt.reason ?? 'Nothing to rate here.',
+                        style: TextStyle(color: scheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        onPressed: () => context.push('/users/${prompt.aboutUserId}'),
+                        child: const Text('See their reputation'),
+                      ),
+                    ],
+                  ),
+                );
+        }
+
+        return SectionCard(
+          title: 'How did it go?',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Rating the other side is what makes a good host or a careful renter visible to '
+                'the next person.',
+                style: TextStyle(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 12),
+              StarPicker(
+                score: _score,
+                onChanged: _submitting ? null : (value) => setState(() => _score = value),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _comment,
+                enabled: !_submitting,
+                maxLines: 3,
+                maxLength: 500,
+                decoration: const InputDecoration(
+                  hintText: 'Anything worth saying? (optional)',
+                ),
+              ),
+              const SizedBox(height: 4),
+              FilledButton(
+                // No score, no submission: a rating is the score, and the comment alone has
+                // nowhere to go.
+                onPressed: _score == 0 || _submitting ? null : _submit,
+                child: const Text('Submit rating'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

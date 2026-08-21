@@ -78,7 +78,54 @@ public sealed class PricingAndPayoutTests : IDisposable
 
         var act = () => _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
 
-        await act.Should().ThrowAsync<DomainException>().WithMessage("*KYC*");
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*Verify your identity*");
+    }
+
+    [Fact]
+    public async Task Cash_out_is_blocked_while_the_identity_check_is_still_being_reviewed()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Pending);
+        await CreditHostAsync(host.Id, 1000m);
+
+        var act = () => _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+
+        // A host waiting on a reviewer is told to wait, not told to do something they have
+        // already done — the two refusals look identical from the wallet and are not.
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*still being reviewed*");
+    }
+
+    [Fact]
+    public async Task Cash_out_is_blocked_when_the_trust_score_has_collapsed()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Verified);
+        await CreditHostAsync(host.Id, 2000m);
+
+        var tracked = await _h.Db.Users.FirstAsync(u => u.Id == host.Id);
+        tracked.TrustScore = 20;
+        await _h.Db.SaveChangesAsync();
+
+        var act = () => _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+
+        // The score gates this and nothing else, which is the point of having one: money leaving
+        // the platform is the movement that cannot be undone cheaply.
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*under review*");
+    }
+
+    [Fact]
+    public async Task One_bad_rating_does_not_strand_a_host_s_earnings()
+    {
+        var host = await _h.AddUserAsync(UserRole.Host, KycStatus.Verified);
+        await CreditHostAsync(host.Id, 2000m);
+
+        // The worst a single counterparty can do is six points. The floor sits far below that on
+        // purpose: an annoyed renter must not be able to freeze someone's income.
+        var tracked = await _h.Db.Users.FirstAsync(u => u.Id == host.Id);
+        tracked.TrustScore = 100 - 6;
+        await _h.Db.SaveChangesAsync();
+
+        var payout = await _h.Wallets.RequestCashOutAsync(host.Id, 600m, "co-1");
+
+        payout.Status.Should().Be(PayoutStatus.Requested);
     }
 
     [Fact]

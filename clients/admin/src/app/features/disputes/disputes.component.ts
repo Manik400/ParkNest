@@ -1,11 +1,12 @@
-import { CurrencyPipe, DatePipe } from '@angular/common';
+import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
+import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/auth.service';
-import { Dispute } from '../../core/models';
+import { Dispute, Reputation } from '../../core/models';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 
 /**
@@ -16,7 +17,7 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
 @Component({
   selector: 'app-disputes',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, FormsModule, RouterLink, StatusPillComponent],
+  imports: [CurrencyPipe, DatePipe, DecimalPipe, FormsModule, RouterLink, StatusPillComponent],
   template: `
     <div class="stack">
       <div>
@@ -116,16 +117,55 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
             @if (dispute.evidence.length > 0) {
               <div>
                 <dt>Evidence</dt>
-                <dd>
+                <dd class="evidence">
                   @for (item of dispute.evidence; track item.id) {
-                    <a [href]="item.url" target="_blank" rel="noopener noreferrer">
-                      {{ item.note || item.url }}
+                    <a [href]="asset(item.url)" target="_blank" rel="noopener noreferrer">
+                      <img [src]="asset(item.url)" [alt]="item.note || 'Evidence'" />
+                      @if (item.note) {
+                        <span class="muted small">{{ item.note }}</span>
+                      }
                     </a>
                   }
                 </dd>
               </div>
             }
           </dl>
+
+          <!--
+            Both reputations, side by side, before the decision.
+
+            A refund is capped at what the session collected but is otherwise the operator's
+            judgement, and "who is this, and what have their other counterparties said" is the
+            context that judgement needs. Shown for both parties on purpose: a dispute where only
+            the complainant is looked up is a dispute decided on who complained.
+          -->
+          <div class="grid">
+            @for (party of parties(); track party.label) {
+              <div class="card party">
+                <div class="party__title">{{ party.label }}</div>
+                @if (party.reputation; as reputation) {
+                  <div class="party__score">
+                    {{
+                      reputation.averageScore === null
+                        ? 'No ratings yet'
+                        : (reputation.averageScore | number: '1.1-1') + ' ★'
+                    }}
+                    <span class="muted small">
+                      from {{ reputation.ratingCount }} session(s)
+                    </span>
+                  </div>
+                  <div class="muted small">Trust score {{ reputation.trustScore }} / 100</div>
+                  @for (rating of reputation.recent.slice(0, 3); track rating.id) {
+                    @if (rating.comment) {
+                      <div class="muted small">“{{ rating.comment }}” — {{ rating.score }}★</div>
+                    }
+                  }
+                } @else {
+                  <div class="muted small">Loading…</div>
+                }
+              </div>
+            }
+          </div>
 
           <div>
             <label for="resolution">What was decided</label>
@@ -184,6 +224,32 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
   `,
   styles: [
     `
+      .evidence {
+        display: flex;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+      }
+
+      .evidence img {
+        width: 120px;
+        height: 120px;
+        object-fit: cover;
+        border-radius: 8px;
+        border: 1px solid var(--border, #ddd);
+      }
+
+      .party {
+        padding: var(--space-3);
+      }
+
+      .party__title {
+        font-weight: 600;
+      }
+
+      .party__score {
+        font-size: 1.1rem;
+      }
+
       .row {
         display: flex;
         align-items: center;
@@ -247,6 +313,41 @@ export class DisputesComponent implements OnInit {
   refund = 0;
   chargedToPlatform = true;
 
+  /** Both parties' reputations, fetched when a dispute is opened for a decision. */
+  private readonly reputations = signal<Record<string, Reputation>>({});
+
+  /**
+   * The two people this dispute is between, each with whatever reputation has arrived.
+   *
+   * Labelled by role rather than by name because that is the axis the decision runs along, and
+   * the complainant is marked so the reviewer is not left inferring it from an id.
+   */
+  parties(): { label: string; reputation: Reputation | null }[] {
+    const dispute = this.selected();
+
+    if (!dispute) {
+      return [];
+    }
+
+    const scores = this.reputations();
+
+    return [
+      {
+        label: dispute.raisedByUserId === dispute.renterId ? 'Renter (complainant)' : 'Renter',
+        reputation: scores[dispute.renterId] ?? null,
+      },
+      {
+        label: dispute.raisedByUserId === dispute.hostId ? 'Host (complainant)' : 'Host',
+        reputation: scores[dispute.hostId] ?? null,
+      },
+    ];
+  }
+
+  /** Evidence is served from the API host, not from wherever this console is hosted. */
+  asset(url: string): string {
+    return url.startsWith('http') ? url : `${environment.apiBaseUrl}${url}`;
+  }
+
   ngOnInit(): void {
     this.load();
   }
@@ -281,6 +382,22 @@ export class DisputesComponent implements OnInit {
     this.refund = 0;
     this.chargedToPlatform = true;
     this.notice.set(null);
+
+    // Fetched per selection rather than with the list: the queue can be long, and two extra
+    // requests per row would be paid for every dispute nobody opens.
+    for (const userId of [dispute.renterId, dispute.hostId]) {
+      if (this.reputations()[userId]) {
+        continue;
+      }
+
+      this.api.reputation(userId).subscribe({
+        next: (reputation) =>
+          this.reputations.update((current) => ({ ...current, [userId]: reputation })),
+        // A missing reputation is not worth an error banner over a decision that can still be
+        // made without it. The card keeps saying it is loading.
+        error: () => undefined,
+      });
+    }
   }
 
   review(): void {

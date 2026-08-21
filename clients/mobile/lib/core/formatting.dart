@@ -6,12 +6,28 @@ final NumberFormat _credits = NumberFormat.currency(locale: 'en_IN', symbol: '�
 
 final DateFormat _dayTime = DateFormat('d MMM, h:mm a');
 final DateFormat _timeOnly = DateFormat('h:mm a');
+final DateFormat _dayOnly = DateFormat('d MMM yyyy');
 
 String formatCredits(double amount) => _credits.format(amount);
 
 String formatDateTime(DateTime value) => _dayTime.format(value);
 
 String formatTime(DateTime value) => _timeOnly.format(value);
+
+String formatDate(DateTime value) => _dayOnly.format(value);
+
+/// How long ago something happened, for a list where the exact minute does not matter. Anything
+/// older than a week gets its date back — "23 days ago" is a number the reader has to convert.
+String formatAgo(DateTime value, {DateTime? now}) {
+  final elapsed = (now ?? DateTime.now()).difference(value);
+
+  if (elapsed.inMinutes < 1) return 'just now';
+  if (elapsed.inMinutes < 60) return '${elapsed.inMinutes}m ago';
+  if (elapsed.inHours < 24) return '${elapsed.inHours}h ago';
+  if (elapsed.inDays < 7) return '${elapsed.inDays}d ago';
+
+  return formatDate(value);
+}
 
 /// "1h 30m", not "90 minutes" — the second is arithmetic the reader has to do.
 String formatDuration(int minutes) {

@@ -13,6 +13,7 @@ using ParkNest.Application.Payments;
 using ParkNest.Infrastructure.Auth;
 using ParkNest.Infrastructure.Bookings;
 using ParkNest.Infrastructure.Messaging;
+using ParkNest.Infrastructure.Notifications;
 using ParkNest.Infrastructure.Payments;
 using ParkNest.Infrastructure.Storage;
 using ParkNest.Infrastructure.Persistence;
@@ -32,8 +33,11 @@ public static class DependencyInjection
         services.Configure<PaymentOptions>(configuration.GetSection(PaymentOptions.SectionName));
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
         services.Configure<MessagingOptions>(configuration.GetSection(MessagingOptions.SectionName));
+        services.Configure<PushOptions>(configuration.GetSection(PushOptions.SectionName));
+        services.Configure<KycOptions>(configuration.GetSection(KycOptions.SectionName));
 
         ValidateAuthOptions(configuration, environment);
+        ValidateKycOptions(configuration, environment);
 
         var connectionString = configuration.GetConnectionString("ParkNest")
             ?? throw new InvalidOperationException("Connection string 'ParkNest' is not configured.");
@@ -55,6 +59,7 @@ public static class DependencyInjection
         AddPayments(services, configuration, environment);
         AddPhotoStorage(services, configuration, environment);
         AddMessaging(services, configuration);
+        AddPush(services, configuration);
 
         // Over-runs bill themselves while the session is still running rather than only at
         // checkout, which is the difference between discovering a renter cannot pay while their
@@ -170,6 +175,31 @@ public static class DependencyInjection
     }
 
     /// <summary>
+    /// Firebase when a project is configured, nothing otherwise — and unlike SMS or payments,
+    /// "nothing" is allowed in Production.
+    ///
+    /// The durable notification is written either way and the socket still carries the live one,
+    /// so a missing Firebase project costs a buzz on a locked handset. Refusing to boot over that
+    /// would take the whole platform down to protect a convenience.
+    /// </summary>
+    private static void AddPush(IServiceCollection services, IConfiguration configuration)
+    {
+        var push = configuration.GetSection(PushOptions.SectionName).Get<PushOptions>() ?? new PushOptions();
+
+        if (!push.IsConfigured)
+        {
+            services.AddSingleton<IPushSender, DisabledPushSender>();
+            return;
+        }
+
+        // Singleton, and that is the point: it caches the OAuth access token minted from the
+        // service account key. Per-scope it would sign a fresh JWT and make a round trip to
+        // Google for every notification.
+        services.AddSingleton(_ => GoogleServiceAccount.FromFile(push.ServiceAccountKeyPath));
+        services.AddHttpClient<IPushSender, FirebasePushSender>();
+    }
+
+    /// <summary>
     /// Where listing photos go. Local disk is the default because it works on any machine with no
     /// account, and it is honest about its limit: two API instances do not share a directory, so
     /// this is the first thing to replace when the deployment stops being a single box.
@@ -190,6 +220,30 @@ public static class DependencyInjection
         // Not a startup failure even in Production: a deployment may legitimately run without
         // photos, and the endpoints say so plainly rather than the API refusing to boot.
         services.AddSingleton<IPhotoStorage, UnconfiguredPhotoStorage>();
+    }
+
+    /// <summary>
+    /// The KYC pepper keys the hash of every document number the platform stores.
+    ///
+    /// Outside Development it must be set and must not be the placeholder: the hash exists so the
+    /// same document turning up under two accounts is visible, and an unkeyed or publicly-known
+    /// key over a ten-character PAN is a lookup table away from the number itself.
+    /// </summary>
+    private static void ValidateKycOptions(IConfiguration configuration, IHostEnvironment environment)
+    {
+        if (environment.IsDevelopment())
+        {
+            return;
+        }
+
+        var kyc = configuration.GetSection(KycOptions.SectionName).Get<KycOptions>() ?? new KycOptions();
+
+        if (string.IsNullOrWhiteSpace(kyc.Pepper) || kyc.Pepper.Length < 16
+            || kyc.Pepper.Contains("dev-only", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Kyc:Pepper must be set to a real secret of at least 16 characters outside Development.");
+        }
     }
 
     /// <summary>

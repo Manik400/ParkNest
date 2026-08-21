@@ -40,7 +40,10 @@ class LocationResult {
 class LocationService {
   const LocationService();
 
-  Future<LocationResult> current() async {
+  /// [precise] asks for a GPS-grade fix, and is only worth its extra seconds and battery where
+  /// the answer is checked against a radius — a Tier 2 check-in has to land within 150 m of the
+  /// pin, and a network fix is routinely wronger than that.
+  Future<LocationResult> current({bool precise = false}) async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       return const LocationResult.failed(LocationFailure.serviceDisabled);
     }
@@ -63,9 +66,9 @@ class LocationService {
       // Medium accuracy on purpose. The search radius starts at a kilometre, so metres of
       // precision buy nothing and cost a noticeably longer fix and more battery.
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.medium,
-          timeLimit: Duration(seconds: 15),
+        locationSettings: LocationSettings(
+          accuracy: precise ? LocationAccuracy.best : LocationAccuracy.medium,
+          timeLimit: Duration(seconds: precise ? 25 : 15),
         ),
       );
 

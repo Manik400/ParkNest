@@ -290,3 +290,56 @@ export interface CancellationTerms {
   /** After this moment cancelling starts costing something. */
   freeUntil: string;
 }
+
+export type KycStatus = 'NotStarted' | 'Pending' | 'Verified' | 'Rejected';
+
+/**
+ * One attempt by a host to prove who they are.
+ *
+ * The document number is not here and never will be: the server keeps the last four characters
+ * for a human to match against the photograph, and a keyed hash for spotting one document used by
+ * two accounts. `previousRejections` and `otherAccountsWithThisDocument` are the two things a
+ * reviewer cannot see from a single row and needs before approving money out.
+ */
+export interface KycSubmission {
+  id: string;
+  userId: string;
+  legalName: string;
+  documentType: string;
+  documentLast4: string;
+  documentPhotoUrl: string | null;
+  payoutAccountLast4: string | null;
+  status: KycStatus;
+  submittedAt: string;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+  userPhone: string | null;
+  previousRejections: number;
+  otherAccountsWithThisDocument: number;
+}
+
+export interface Rating {
+  id: string;
+  bookingId: string;
+  toUserId: string;
+  score: number;
+  comment: string | null;
+  createdAt: string;
+}
+
+/**
+ * What a user's counterparties have said about them.
+ *
+ * `averageScore` is null for somebody nobody has rated, and must stay null on the way to a screen:
+ * rendering it as 0.0 would tell a reviewer that a brand-new host is terrible, which is the
+ * opposite of what no ratings means. `trustScore` is the different thing the platform acts on —
+ * it starts from good faith and moves on conduct.
+ */
+export interface Reputation {
+  userId: string;
+  trustScore: number;
+  averageScore: number | null;
+  ratingCount: number;
+  recent: Rating[];
+}
+

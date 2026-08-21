@@ -19,10 +19,12 @@ public sealed class EventAndNotificationTests : IDisposable
     private readonly TestHarness _h = new();
     private readonly INotificationService _notifications;
     private readonly BookingNotificationHandlers _handlers;
+    private readonly RecordingPushSender _push = new();
 
     public EventAndNotificationTests()
     {
-        _notifications = new NotificationService(_h.Db, _h.CurrentUser, _h.Clock);
+        _notifications = new NotificationService(
+            _h.Db, _h.CurrentUser, _h.Clock, _push, NullLogger<NotificationService>.Instance);
         _handlers = new BookingNotificationHandlers(
             _notifications, NullLogger<BookingNotificationHandlers>.Instance);
     }

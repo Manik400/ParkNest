@@ -76,6 +76,35 @@ class ApiClient {
   Future<dynamic> delete(String path) =>
       _send(() => _dio.delete<dynamic>(path, options: _auth()));
 
+  /// Uploads one file as multipart.
+  ///
+  /// Separate from [post] because the content type has to be left to Dio: it writes the boundary
+  /// into the header, and the JSON default set on the client would otherwise produce a body the
+  /// server cannot parse and an error nobody can read.
+  Future<dynamic> upload(
+    String path,
+    String filePath, {
+    String field = 'file',
+    Map<String, dynamic>? fields,
+  }) async {
+    final form = FormData.fromMap({
+      ...?fields,
+      field: await MultipartFile.fromFile(filePath),
+    });
+
+    return _send(() => _dio.post<dynamic>(
+          path,
+          data: form,
+          options: Options(
+            headers: {
+              ..._auth().headers ?? const {},
+              // Overrides the client-wide JSON default for this request only.
+              'Content-Type': 'multipart/form-data',
+            },
+          ),
+        ));
+  }
+
   /// Unauthenticated: sign-in, refresh and sign-out speak for themselves and must never trigger
   /// the refresh path, or a rejected code would loop.
   Future<dynamic> postAnonymous(String path, {Object? body}) async {

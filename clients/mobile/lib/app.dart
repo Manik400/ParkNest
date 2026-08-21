@@ -9,10 +9,15 @@ import 'core/session.dart';
 import 'screens/add_listing_screen.dart';
 import 'screens/booking_detail_screen.dart';
 import 'screens/bookings_screen.dart';
+import 'screens/check_in_code_screen.dart';
 import 'screens/disputes_screen.dart';
 import 'screens/explore_screen.dart';
 import 'screens/home_shell.dart';
 import 'screens/hosting_screen.dart';
+import 'screens/kyc_screen.dart';
+import 'screens/listing_screen.dart';
+import 'screens/notifications_screen.dart';
+import 'screens/reputation_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'screens/space_screen.dart';
 import 'screens/vehicles_screen.dart';
@@ -83,8 +88,28 @@ class _ParkNestAppState extends State<ParkNestApp> {
           ),
         ),
         GoRoute(path: '/vehicles', builder: (_, __) => const VehiclesScreen()),
+        GoRoute(path: '/kyc', builder: (_, __) => const KycScreen()),
         GoRoute(path: '/listings/new', builder: (_, __) => const AddListingScreen()),
+        GoRoute(
+          path: '/listings/:spaceId',
+          builder: (_, state) => ListingScreen(
+            spaceId: state.pathParameters['spaceId']!,
+            title: state.uri.queryParameters['title'] ?? 'Your space',
+          ),
+        ),
+        GoRoute(
+          path: '/listings/:spaceId/check-in-code',
+          builder: (_, state) => CheckInCodeScreen(
+            spaceId: state.pathParameters['spaceId']!,
+            title: state.uri.queryParameters['title'] ?? 'Your space',
+          ),
+        ),
         GoRoute(path: '/disputes', builder: (_, __) => const DisputesScreen()),
+        GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
+        GoRoute(
+          path: '/users/:userId',
+          builder: (_, state) => ReputationScreen(userId: state.pathParameters['userId']!),
+        ),
       ],
     );
 

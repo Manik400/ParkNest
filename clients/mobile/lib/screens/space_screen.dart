@@ -5,6 +5,7 @@ import '../core/api_client.dart';
 import '../core/formatting.dart';
 import '../core/models.dart';
 import '../widgets/common.dart';
+import '../widgets/listing_photos.dart';
 
 /// Quote a session, then book it.
 ///
@@ -32,6 +33,7 @@ class _SpaceScreenState extends State<SpaceScreen> {
   Vehicle? _vehicle;
 
   Future<BookingQuote>? _quote;
+  Future<List<ListingPhoto>>? _photos;
   bool _booking = false;
 
   @override
@@ -56,6 +58,12 @@ class _SpaceScreenState extends State<SpaceScreen> {
     });
 
     _quote ??= _requestQuote();
+
+    // Failing softly on purpose: a listing with no photographs, or a deployment with storage
+    // switched off, must still be bookable. The strip simply does not appear.
+    _photos ??= Services.of(context)
+        .listingPhotos(widget.spaceId)
+        .catchError((_) => <ListingPhoto>[]);
   }
 
   Future<BookingQuote> _requestQuote() => Services.of(context).quote(
@@ -148,6 +156,19 @@ class _SpaceScreenState extends State<SpaceScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
+          FutureBuilder<List<ListingPhoto>>(
+            future: _photos,
+            builder: (context, snapshot) {
+              final photos = snapshot.data ?? const <ListingPhoto>[];
+
+              return photos.isEmpty
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: ListingPhotoStrip(photos: photos),
+                    );
+            },
+          ),
           SectionCard(
             title: 'When',
             child: Column(

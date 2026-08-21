@@ -13,6 +13,19 @@ public interface IDisputeService
     /// <summary>Raises a dispute against a booking. Either party to it may.</summary>
     Task<DisputeView> RaiseAsync(RaiseDisputeRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Attaches a photograph to a dispute the caller is party to, while it is still undecided.
+    ///
+    /// Uploaded rather than linked. A URL field asks the complainant to host the picture of their
+    /// own blocked driveway somewhere else and keep it alive until an operator looks — which is
+    /// most of a photograph's value gone by the time it matters.
+    /// </summary>
+    Task<DisputeView> AddEvidenceAsync(
+        Guid disputeId,
+        Common.PhotoUpload upload,
+        string? note,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Disputes the caller raised or is named in. Admins see everything.</summary>
     Task<IReadOnlyList<DisputeView>> ListAsync(DisputeQuery query, CancellationToken cancellationToken = default);
 

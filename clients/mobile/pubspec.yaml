@@ -47,6 +47,19 @@ dependencies:
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
 
+  # Reading the QR sticker at the space, for a Tier 2 check-in. Pinned to 5.x: 6.0 moves to a
+  # scanner controller API that needs a newer Flutter than this project's 3.24.
+  mobile_scanner: ^5.2.3
+
+  # Drawing that same code, on the host's side, so a sticker can be printed from the phone that
+  # listed the space. Rendering locally rather than from a server-side image keeps the token out
+  # of a URL, and out of whatever caches one.
+  qr_flutter: ^4.1.0
+
+  # Photographs: a listing's pictures, the document behind a KYC submission, the blocked bay in a
+  # dispute. Camera or gallery, and the plugin owns the permission prompt on both platforms.
+  image_picker: ^1.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

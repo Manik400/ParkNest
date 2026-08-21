@@ -34,4 +34,20 @@ void main() {
       expect(formatRemaining(now.subtract(const Duration(minutes: 25)), now: now), '25m over');
     });
   });
+
+  group('formatAgo', () {
+    final now = DateTime(2026, 8, 19, 10);
+
+    test('counts back in the unit the reader is thinking in', () {
+      expect(formatAgo(now.subtract(const Duration(seconds: 20)), now: now), 'just now');
+      expect(formatAgo(now.subtract(const Duration(minutes: 5)), now: now), '5m ago');
+      expect(formatAgo(now.subtract(const Duration(hours: 3)), now: now), '3h ago');
+      expect(formatAgo(now.subtract(const Duration(days: 2)), now: now), '2d ago');
+    });
+
+    test('gives the date back once the elapsed count stops being readable', () {
+      // "23 days ago" is arithmetic the reader has to do to place the day.
+      expect(formatAgo(DateTime(2026, 7, 27), now: now), '27 Jul 2026');
+    });
+  });
 }

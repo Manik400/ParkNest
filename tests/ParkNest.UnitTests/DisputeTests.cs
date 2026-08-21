@@ -1,7 +1,9 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using ParkNest.Application.Bookings;
+using ParkNest.Application.Common;
 using ParkNest.Application.Disputes;
+using ParkNest.Application.Options;
 using ParkNest.Domain.Common;
 
 namespace ParkNest.UnitTests;
@@ -15,11 +17,14 @@ public sealed class DisputeTests : IDisposable
 {
     private readonly TestHarness _h = new();
     private readonly IDisputeService _disputes;
+    private readonly RecordingPhotoStorage _storage = new();
 
     public DisputeTests()
     {
         _disputes = new DisputeService(
             _h.Db, _h.Ledger, _h.Wallets, _h.CurrentUser, _h.Clock, _h.Events,
+            _storage,
+            Microsoft.Extensions.Options.Options.Create(new StorageOptions { MaxPhotoBytes = 1024 }),
             NullLogger<DisputeService>.Instance);
     }
 
@@ -55,6 +60,75 @@ public sealed class DisputeTests : IDisposable
     }
 
     private void SignInAdmin() => _h.CurrentUser.SignIn(Guid.NewGuid(), UserRole.Admin);
+
+    private static readonly byte[] Jpeg = { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01 };
+
+    private static PhotoUpload Photo(byte[]? bytes = null)
+    {
+        var content = bytes ?? Jpeg;
+        return new PhotoUpload(new MemoryStream(content), content.Length);
+    }
+
+    [Fact]
+    public async Task A_party_can_attach_a_photograph_while_the_dispute_is_undecided()
+    {
+        var (_, _, bookingId) = await CompletedBookingAsync();
+        var dispute = await _disputes.RaiseAsync(new RaiseDisputeRequest(bookingId, "The space was blocked."));
+
+        var withEvidence = await _disputes.AddEvidenceAsync(
+            dispute.DisputeId, Photo(), "Another car in the bay at 09:05.");
+
+        withEvidence.Evidence.Should().ContainSingle()
+            .Which.Note.Should().Be("Another car in the bay at 09:05.");
+
+        // Stored by us, not linked to somewhere the complainant happens to host it — a URL that
+        // stops resolving before an operator looks is most of a photograph's value gone.
+        _storage.Saved.Should().ContainSingle();
+        withEvidence.Evidence.Single().Url.Should().Be(_storage.Saved.Single());
+    }
+
+    [Fact]
+    public async Task Evidence_cannot_be_added_after_the_decision()
+    {
+        var (_, _, bookingId) = await CompletedBookingAsync();
+        var dispute = await _disputes.RaiseAsync(new RaiseDisputeRequest(bookingId, "The space was blocked."));
+
+        SignInAdmin();
+        await _disputes.RejectAsync(dispute.DisputeId, "Not upheld.");
+
+        var act = () => _disputes.AddEvidenceAsync(dispute.DisputeId, Photo(), null);
+
+        // Attaching to a decided dispute reads as a way to reopen it, and it is not one.
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*already been decided*");
+    }
+
+    [Fact]
+    public async Task A_stranger_cannot_attach_evidence_to_someone_else_s_dispute()
+    {
+        var (_, _, bookingId) = await CompletedBookingAsync();
+        var dispute = await _disputes.RaiseAsync(new RaiseDisputeRequest(bookingId, "The space was blocked."));
+
+        var stranger = await _h.AddUserAsync(UserRole.Renter);
+        _h.CurrentUser.SignIn(stranger.Id);
+
+        var act = () => _disputes.AddEvidenceAsync(dispute.DisputeId, Photo(), null);
+
+        await act.Should().ThrowAsync<ForbiddenException>();
+    }
+
+    [Fact]
+    public async Task A_file_that_is_not_an_image_is_refused_as_evidence()
+    {
+        var (_, _, bookingId) = await CompletedBookingAsync();
+        var dispute = await _disputes.RaiseAsync(new RaiseDisputeRequest(bookingId, "The space was blocked."));
+
+        var act = () => _disputes.AddEvidenceAsync(
+            dispute.DisputeId, Photo("<html>not a photo</html>"u8.ToArray()), null);
+
+        // This file is served back from our own origin to an operator's browser, which is exactly
+        // the shape of a stored-XSS bug.
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*JPEG, PNG and WebP*");
+    }
 
     [Fact]
     public async Task Either_party_can_raise_a_dispute()

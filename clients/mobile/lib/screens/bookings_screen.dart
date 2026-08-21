@@ -37,7 +37,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('My bookings'),
-        actions: const [HomeMenuButton()],
+        actions: const [NotificationsBell(), HomeMenuButton()],
       ),
       body: RefreshIndicator(
         onRefresh: _reload,

@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using ParkNest.Application.Disputes;
+using ParkNest.Application.Common;
+using ParkNest.Domain.Common;
 
 namespace ParkNest.Api.Controllers;
 
@@ -37,4 +39,27 @@ public sealed class DisputesController : ControllerBase
         [FromBody] RaiseDisputeRequest request,
         CancellationToken cancellationToken) =>
         Ok(await _disputes.RaiseAsync(request, cancellationToken));
+
+    /// <summary>
+    /// Attaches a photograph — the blocked bay, the damage, the empty space the renter never
+    /// used. Multipart, and one file per call, because that is how a phone sends a picture.
+    /// </summary>
+    [HttpPost("{disputeId:guid}/evidence")]
+    [RequestSizeLimit(8 * 1024 * 1024)]
+    public async Task<ActionResult<DisputeView>> AddEvidence(
+        Guid disputeId,
+        IFormFile file,
+        [FromForm] string? note,
+        CancellationToken cancellationToken)
+    {
+        if (file is null || file.Length == 0)
+        {
+            throw new DomainException("Attach a photo to upload.");
+        }
+
+        await using var content = file.OpenReadStream();
+
+        return Ok(await _disputes.AddEvidenceAsync(
+            disputeId, new PhotoUpload(content, file.Length), note, cancellationToken));
+    }
 }

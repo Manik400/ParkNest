@@ -29,6 +29,19 @@ public sealed class PlatformOptions
     /// <summary>Hosts cannot cash out below this, to keep payout fees sane (PRD §5.1.6).</summary>
     public decimal MinimumCashOutCredits { get; set; } = 500m;
 
+    /// <summary>
+    /// Trust score a host needs before money may leave the platform.
+    ///
+    /// Cash-out is the one movement nothing can compensate for cheaply, so it is the right place
+    /// for the score to bite — and until now it bit nowhere, which made it a number the system
+    /// computed and never used.
+    ///
+    /// Forty is deliberately far down. A rating moves the score by at most six and a violation by
+    /// ten, so no single annoyed renter, and no bad week, can strand a host's earnings; reaching
+    /// the floor takes a sustained pattern. Zero disables the gate.
+    /// </summary>
+    public int MinimumTrustScoreForCashOut { get; set; } = 40;
+
     /// <summary>Smallest recharge accepted.</summary>
     public decimal MinimumRechargeCredits { get; set; } = 100m;
 

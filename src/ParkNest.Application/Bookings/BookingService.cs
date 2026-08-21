@@ -142,16 +142,47 @@ public sealed class BookingService : IBookingService
             CreatedAt = _clock.UtcNow
         };
 
-        // Reserve first: if the renter is short, no booking should exist at all (PRD §5.1.1).
-        await _wallets.PlaceHoldAsync(
-            renterId,
-            booking.Id,
-            quote.Amount,
-            HoldKey(request.IdempotencyKey),
-            cancellationToken);
+        // The hold and the booking are one unit.
+        //
+        // Reserve first, because if the renter is short no booking should exist at all (PRD
+        // §5.1.1) — but "first" is not enough on its own. Two separate commits leave a window
+        // where the credits are held against a booking row that never landed: the renter's money
+        // is frozen behind something they cannot see, cancel, or be refunded for. One transaction
+        // closes it.
+        //
+        // The retry lives here rather than in the ledger for the same reason. Once this owns the
+        // transaction, a lost race has to roll back and repeat the whole unit; the ledger cannot
+        // usefully retry a statement inside a transaction Postgres has already marked aborted.
+        for (var attempt = 1; ; attempt++)
+        {
+            await using var work = await _db.BeginTransactionAsync(cancellationToken);
 
-        _db.Bookings.Add(booking);
-        await _db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await _wallets.PlaceHoldAsync(
+                    renterId,
+                    booking.Id,
+                    quote.Amount,
+                    HoldKey(request.IdempotencyKey),
+                    cancellationToken);
+
+                _db.Bookings.Add(booking);
+                await _db.SaveChangesAsync(cancellationToken);
+                await work.CommitAsync(cancellationToken);
+
+                break;
+            }
+            catch (DbUpdateConcurrencyException) when (attempt < MaxBookingAttempts)
+            {
+                // Another writer moved this renter's wallet between our read and our write.
+                // Nothing was committed, so repeating is safe — and the idempotency key means the
+                // hold cannot be posted twice even if the loser got further than it looked.
+                await work.RollbackAsync(cancellationToken);
+                _db.Detach(booking);
+
+                await Task.Delay(TimeSpan.FromMilliseconds(10 * attempt), cancellationToken);
+            }
+        }
 
         // Published after the save, never before: an event is a statement that something has
         // happened, and announcing a booking that then fails to persist is a lie other modules
@@ -551,6 +582,14 @@ public sealed class BookingService : IBookingService
     }
 
     private static string HoldKey(string idempotencyKey) => $"hold:{idempotencyKey}";
+
+    /// <summary>
+    /// How many times a booking will re-run its hold after losing a race for the renter's wallet.
+    ///
+    /// The same reasoning as the ledger's own limit: contention on one wallet is brief, and a
+    /// caller stuck in a loop is worse than a caller told to try again.
+    /// </summary>
+    private const int MaxBookingAttempts = 5;
 
     /// <summary>
     /// Slack for clock skew between a phone and the server, so a "book now" tap does not fail

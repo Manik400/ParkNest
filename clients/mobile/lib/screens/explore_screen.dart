@@ -91,6 +91,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
             icon: Icon(_showMap ? Icons.view_list_outlined : Icons.map_outlined),
             onPressed: () => setState(() => _showMap = !_showMap),
           ),
+          const NotificationsBell(),
           const HomeMenuButton(),
         ],
       ),

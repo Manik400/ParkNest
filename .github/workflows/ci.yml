@@ -77,6 +77,38 @@ jobs:
       - name: Build
         run: npx ng build --configuration production
 
+  mobile-app:
+    name: Mobile app analyses and tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: clients/mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Pinned to the version the app is developed against. The plugin constraints in
+          # pubspec.yaml are written around it — geolocator and mobile_scanner both moved to
+          # newer Flutter tooling in their next majors.
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Install
+        run: flutter pub get
+
+      # Analysis, not a build. An APK needs an Android toolchain for a check that would only tell
+      # us what analyze already did — the parts worth protecting here are the wire models and the
+      # code the scanner accepts, and those are tests.
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
   migrations-apply:
     name: Migrations apply to a real PostGIS database
     runs-on: ubuntu-latest

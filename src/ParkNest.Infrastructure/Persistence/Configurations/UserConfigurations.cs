@@ -79,3 +79,30 @@ public sealed class RefreshTokenConfiguration : IEntityTypeConfiguration<Refresh
         builder.HasIndex(t => new { t.UserId, t.ExpiresAt });
     }
 }
+
+public sealed class KycSubmissionConfiguration : IEntityTypeConfiguration<KycSubmission>
+{
+    public void Configure(EntityTypeBuilder<KycSubmission> builder)
+    {
+        builder.ToTable("kyc_submissions");
+        builder.HasKey(s => s.Id);
+
+        builder.Property(s => s.LegalName).HasMaxLength(200).IsRequired();
+        builder.Property(s => s.DocumentLast4).HasMaxLength(8).IsRequired();
+
+        // Hex of a SHA-256 MAC. Fixed width, and never the document number itself.
+        builder.Property(s => s.DocumentHash).HasMaxLength(64).IsRequired();
+        builder.Property(s => s.DocumentPhotoUrl).HasMaxLength(500);
+        builder.Property(s => s.PayoutAccountLast4).HasMaxLength(8);
+        builder.Property(s => s.RejectionReason).HasMaxLength(500);
+
+        // The review queue reads "pending, oldest first"; a host's own screen reads their latest.
+        builder.HasIndex(s => new { s.Status, s.SubmittedAt });
+        builder.HasIndex(s => new { s.UserId, s.SubmittedAt });
+
+        // Not unique — the same document legitimately appears across a host's own resubmissions.
+        // The index is what makes "who else has sent this document" cheap enough to show a
+        // reviewer on every row of the queue.
+        builder.HasIndex(s => s.DocumentHash);
+    }
+}

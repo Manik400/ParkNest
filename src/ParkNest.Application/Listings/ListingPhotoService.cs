@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Common;
 using ParkNest.Application.Options;
 using ParkNest.Domain.Common;
 using ParkNest.Domain.Listings;
@@ -17,33 +18,10 @@ public interface IListingPhotoService
     Task RemoveAsync(Guid spaceId, Guid photoId, CancellationToken cancellationToken = default);
 }
 
-/// <param name="Content">Read once, streamed straight to storage rather than buffered in memory.</param>
-public sealed record PhotoUpload(Stream Content, long Length);
-
 public sealed record ListingPhotoView(Guid Id, string Url, int SortOrder);
 
 public sealed class ListingPhotoService : IListingPhotoService
 {
-    /// <summary>
-    /// Formats we are willing to store, by the bytes that actually start the file.
-    ///
-    /// Sniffed, never taken from the request. Content-Type is whatever the caller typed, and a
-    /// file we serve back from our own origin under a name we chose is exactly the shape of a
-    /// stored-XSS bug — an "image/jpeg" containing HTML would be handed to a browser as our
-    /// content. Matching the leading bytes means the only things on disk are things that really
-    /// are pictures.
-    /// </summary>
-    private static readonly (byte[] Magic, string Extension)[] AllowedFormats =
-    {
-        (new byte[] { 0xFF, 0xD8, 0xFF }, ".jpg"),
-        (new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, ".png"),
-        // WEBP is a RIFF container: "RIFF" then four size bytes then "WEBP", so the tag it is
-        // identified by does not sit at the start of the file.
-        (new byte[] { 0x52, 0x49, 0x46, 0x46 }, ".webp"),
-    };
-
-    private const int SniffLength = 12;
-
     private readonly IParkNestDbContext _db;
     private readonly IPhotoStorage _storage;
     private readonly ICurrentUser _currentUser;
@@ -95,7 +73,7 @@ public sealed class ListingPhotoService : IListingPhotoService
                 $"A listing can hold {_options.MaxPhotosPerListing} photos. Remove one first.");
         }
 
-        var extension = await SniffExtensionAsync(upload.Content, cancellationToken);
+        var extension = await ImageContent.SniffExtensionAsync(upload.Content, cancellationToken);
         var url = await _storage.SaveAsync(upload.Content, extension, cancellationToken);
 
         var photo = new SpacePhoto
@@ -162,40 +140,5 @@ public sealed class ListingPhotoService : IListingPhotoService
         _currentUser.RequireSelfOrAdmin(space.HostId);
 
         return space;
-    }
-
-    /// <summary>
-    /// Reads the leading bytes and returns the extension for the format they identify. Rewinds
-    /// afterwards so the caller can stream the whole file to storage.
-    /// </summary>
-    private static async Task<string> SniffExtensionAsync(Stream content, CancellationToken cancellationToken)
-    {
-        if (!content.CanSeek)
-        {
-            throw new DomainException("That upload could not be read.");
-        }
-
-        var header = new byte[SniffLength];
-        var read = await content.ReadAtLeastAsync(header, SniffLength, throwOnEndOfStream: false, cancellationToken);
-        content.Position = 0;
-
-        foreach (var (magic, extension) in AllowedFormats)
-        {
-            if (read < magic.Length || !header.AsSpan(0, magic.Length).SequenceEqual(magic))
-            {
-                continue;
-            }
-
-            // RIFF alone is also WAV and AVI. The four bytes at offset 8 are what say it is an image.
-            if (extension == ".webp" &&
-                (read < SniffLength || !header.AsSpan(8, 4).SequenceEqual("WEBP"u8)))
-            {
-                continue;
-            }
-
-            return extension;
-        }
-
-        throw new DomainException("Photos must be JPEG, PNG or WebP.");
     }
 }

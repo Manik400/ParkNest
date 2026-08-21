@@ -65,11 +65,30 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [x] Listing a space from the phone, pin placed on the same map. Publish stays a separate call,
       so a price outside the city band leaves a draft to fix rather than a lost form.
 
+- [x] **KYC end to end.** `RequestCashOutAsync` had always refused a host who was not verified, and
+      nothing in the system could ever verify one — a host could earn credits and never convert
+      them. A host now submits name, document and a photograph; an operator reviews it in the
+      console; approving is what opens cash-out. The document number is not stored: four
+      characters for a human to match against the photograph, and a keyed hash so the same
+      document arriving under a second account is visible.
+- [x] **Cash-out in the app.** Hosts could not withdraw from the phone at all. The wallet now shows
+      earnings, and either offers cash-out or explains which check is in the way.
+- [x] **Listing photos in the clients.** Uploaded and served since Phase 0, reachable from neither
+      client. Hosts add and remove them from the app; renters see them above the booking form.
+- [x] **Double-booking settled by the database.** The overlap check read and then wrote, so two
+      requests could pass it in the same instant and both insert — a renter driving to a bay that
+      is taken. A Postgres exclusion constraint over `(space, [start, end))` for live bookings is
+      the guarantee now; the application check stays for the better message.
+- [x] **The hold and the booking are one transaction.** Two separate commits left a window where
+      credits were held against a booking row that never landed: the renter's money frozen behind
+      something they could not see, cancel or be refunded for.
+
 ### What is actually left in Phase 0
 
 - Razorpay against the live API, which needs credentials and an escrow arrangement that does not
-  exist yet. Neither is a code problem.
-- Razorpay is the only remaining item, and it is not a code problem.
+  exist yet. Neither is a code problem, and it is the only item left.
+- The payout leg of that arrangement with it: an operator records each transfer by hand, which is
+  the honest shape until there is an aggregator to call.
 
 ## Phase 1 — Trust and scale hardening
 
@@ -84,11 +103,11 @@ Phases follow PRD §18. Items are ordered within each phase.
       would mean installing RabbitMQ to see a booking confirmation.
 - [x] SignalR: session start and end, overstay warnings, wallet movements and cancellations pushed
       to a per-user group. Every push is paired with a stored notification rather than replacing
-      it — a socket message to a phone in a basement is simply lost. FCM push is still to do; the
-      durable row is what stands in for it meanwhile.
+      it — a socket message to a phone in a basement is simply lost. FCM now pushes off the same
+      stored notification, so the same message reaches a handset that is not connected at all.
 - [x] Tier 2 detection: QR scan + GPS geofence, opt-in per space. The host mints a code for the
-      sticker; a check-in must present that code *and* a position near the pin. Renter-facing
-      scanning in the app is still to do — the API accepts it, nothing photographs a QR yet.
+      sticker; a check-in must present that code *and* a position near the pin. The app now does
+      both ends of it: the host draws the sticker's QR on their own handset, and the renter scans it.
 - [x] Ratings and trust score beyond the current violation penalty. Both parties rate a finished
       session, once each; scores move the trust score in small steps because it gates cash-out and
       one annoyed counterparty must not be able to strand a host's earnings. An unrated user has no
@@ -97,20 +116,53 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [x] Prometheus: booking volume, settled credits, shortfall, dispute rate, and an hourly sweep
       that replays every wallet from its ledger and publishes the drift as a gauge. Counters are
       fed off the same events as notifications rather than instrumented inside the money paths.
-      Grafana dashboards are not built; the metrics they would read are.
+      The dashboards that read them now live in [ops/](../ops/README.md).
 - [x] Wallet concurrency under load. It needed both, and neither alone was enough: a retry on the
       optimistic token, and a `FOR UPDATE` lock on the wallet rows so writers queue instead of
       colliding. Tested against real Postgres, because a suite on one shared SQLite connection can
       only carry a concurrency token, never exercise it.
 
+- [x] **FCM push.** Device tokens register per install and move between accounts rather than
+      duplicating, so a borrowed handset stops receiving the previous owner's bookings. The push
+      is sent from the same place the durable notification is written, after it commits, and
+      carries the same title and body — the two can never say different things about one event. A
+      provider outage costs a buzz, not a message, and a token Firebase disowns is pruned on the
+      spot. `Push:Provider=None` is the default and is allowed in Production.
+- [x] **Grafana dashboards.** [ops/](../ops/README.md): a provisioned Prometheus and Grafana in
+      `docker compose`, one dashboard in the order PRD §17 asks the questions, and three alert
+      rules. Ledger drift is the critical one and should be exactly zero.
+- [x] **Client gap closed on the phone.** Tier 2 scanning, ratings and notifications are all in the
+      Flutter app now:
+      - scanning the sticker takes a precise fix and sends both halves or neither — a scan with no
+        location is a photographed sticker, which is what the geofence exists to catch;
+      - the host draws their own QR on the handset, so the token never travels through an image
+        URL or the caches behind one;
+      - a finished session asks the server whether a rating is still owed rather than working the
+        rule out locally;
+      - notifications are a list with an unread badge, polled once a minute because the app holds
+        no socket.
+
+- [x] **The trust score gates something.** It moved on ratings and violations and was read by
+      nothing, which made it a number the system computed and never used. Cash-out is the right
+      place for it to bite — money leaving is the movement nothing can compensate for cheaply — and
+      the floor sits far below what one annoyed counterparty can do.
+- [x] **Dispute evidence attachments** (PRD §18, Phase 1). Evidence was a URL field asking the
+      complainant to host the photograph of their own blocked driveway somewhere else and keep it
+      alive until a reviewer looked. Both parties now upload from the app while the dispute is
+      undecided, and the operator sees the pictures next to the decision.
+- [x] **Alertmanager.** Firing rules now reach a receiver, with grouping, repeat intervals and a
+      critical that suppresses the warnings beneath it. Routed to a local sink by default —
+      see [ops/](../ops/README.md).
+- [x] **Ratings in the console.** A dispute now shows both parties' star average, trust score and
+      recent comments before the decision. Shown for both on purpose: a dispute where only the
+      complainant is looked up is a dispute decided on who complained.
+
 ### Left over from Phase 1
 
-- **FCM push** for when the socket is down. The durable notification means nothing is lost, but a
-  renter whose overstay is billing does not benefit from a message they only see next time they
-  open the app.
-- **Grafana dashboards.** The metrics exist and are scrapeable; nobody has drawn the graphs.
-- **Client gap.** Tier 2 scanning, ratings, and notifications are all API-only. The backend does
-  more than either client can reach.
+- **FCM in the app.** The API registers device tokens and pushes to them; the Flutter side needs a
+  Firebase project, `google-services.json` and `firebase_messaging` before it can hand one over.
+  That is an account to create, not code to write.
+- **Who is on call.** Alertmanager routes; the rota is not a configuration file.
 
 ## Phase 2 — Multi-city
 

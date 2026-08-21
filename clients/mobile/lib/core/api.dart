@@ -170,12 +170,28 @@ class Api {
   Future<BookingDetail> booking(String bookingId) async =>
       BookingDetail.fromJson(_map(await client.get('/api/bookings/$bookingId')));
 
-  Future<void> startSession(String bookingId) =>
-      client.post('/api/bookings/$bookingId/start', body: {'method': 'AppConfirmed'});
+  /// Tier 1 check-in: the renter's word, recorded as exactly that.
+  ///
+  /// [proof] upgrades it to Tier 2 — the code off the sticker and where the phone was when it
+  /// read it. The server decides whether that stands up; the app never claims a detection method
+  /// it cannot back, because the method is the audit field a human reads when the two parties
+  /// disagree about whether anyone was ever there.
+  Future<void> startSession(String bookingId, {CheckInProof? proof}) =>
+      client.post('/api/bookings/$bookingId/start', body: _sessionEvent(proof));
 
-  Future<SessionOutcome> endSession(String bookingId) async => SessionOutcome.fromJson(
-        _map(await client.post('/api/bookings/$bookingId/end', body: {'method': 'AppConfirmed'})),
+  Future<SessionOutcome> endSession(String bookingId, {CheckInProof? proof}) async =>
+      SessionOutcome.fromJson(
+        _map(await client.post('/api/bookings/$bookingId/end', body: _sessionEvent(proof))),
       );
+
+  Map<String, dynamic> _sessionEvent(CheckInProof? proof) => proof == null
+      ? {'method': 'AppConfirmed'}
+      : {
+          'method': 'QrGeofence',
+          'qrToken': proof.token,
+          'latitude': proof.latitude,
+          'longitude': proof.longitude,
+        };
 
   /// What cancelling would cost, without cancelling.
   Future<CancellationTerms> cancellationTerms(String bookingId) async =>
@@ -194,4 +210,113 @@ class Api {
   Future<Dispute> raiseDispute(String bookingId, String reason) async => Dispute.fromJson(
         _map(await client.post('/api/disputes', body: {'bookingId': bookingId, 'reason': reason})),
       );
+
+  /// Attaches a photograph to a dispute — the blocked bay, the damage, the space that was never
+  /// used. Only while the dispute is still undecided; the server enforces that.
+  Future<Dispute> addDisputeEvidence(String disputeId, String filePath, {String? note}) async =>
+      Dispute.fromJson(_map(await client.upload(
+        '/api/disputes/$disputeId/evidence',
+        filePath,
+        fields: {if (note != null && note.isNotEmpty) 'note': note},
+      )));
+
+  // --- Listing photos -----------------------------------------------------
+
+  Future<List<ListingPhoto>> listingPhotos(String spaceId) async =>
+      _list(await client.get('/api/listings/$spaceId/photos'), ListingPhoto.fromJson);
+
+  /// Uploads one photo from a file on the device. The server sniffs the bytes to decide what it
+  /// is, so nothing here has to claim a content type it cannot vouch for.
+  Future<ListingPhoto> addListingPhoto(String spaceId, String filePath) async =>
+      ListingPhoto.fromJson(
+        _map(await client.upload('/api/listings/$spaceId/photos', filePath)),
+      );
+
+  Future<void> removeListingPhoto(String spaceId, String photoId) =>
+      client.delete('/api/listings/$spaceId/photos/$photoId');
+
+  // --- Identity verification ----------------------------------------------
+
+  Future<KycState> kycState() async => KycState.fromJson(_map(await client.get('/api/kyc/me')));
+
+  /// Uploads the photograph first and returns where it was stored, because the document number
+  /// travels in the JSON body that follows rather than as a form field a proxy might log.
+  Future<String> uploadKycDocument(String filePath) async {
+    final response = _map(await client.upload('/api/kyc/document', filePath));
+    return response['url'] as String;
+  }
+
+  Future<KycSubmission> submitKyc({
+    required String legalName,
+    required String documentType,
+    required String documentNumber,
+    String? documentPhotoUrl,
+    String? payoutAccountNumber,
+  }) async =>
+      KycSubmission.fromJson(_map(await client.post('/api/kyc', body: {
+        'legalName': legalName,
+        'documentType': documentType,
+        'documentNumber': documentNumber,
+        if (documentPhotoUrl != null) 'documentPhotoUrl': documentPhotoUrl,
+        if (payoutAccountNumber != null && payoutAccountNumber.isNotEmpty)
+          'payoutAccountNumber': payoutAccountNumber,
+      })));
+
+  // --- Check-in codes (host side) -----------------------------------------
+
+  /// The code to print on the sticker, minted on first ask. Host only — a code any renter could
+  /// fetch would prove nothing about them having stood anywhere.
+  Future<CheckInCode> checkInCode(String spaceId) async =>
+      CheckInCode.fromJson(_map(await client.get('/api/listings/$spaceId/check-in-code')));
+
+  /// Issues a new code and retires the old one, for a sticker that has been photographed.
+  Future<CheckInCode> rotateCheckInCode(String spaceId) async => CheckInCode.fromJson(
+        _map(await client.post('/api/listings/$spaceId/check-in-code/rotate', body: {})),
+      );
+
+  // --- Ratings ------------------------------------------------------------
+
+  Future<RatingPrompt> ratingPrompt(String bookingId) async =>
+      RatingPrompt.fromJson(_map(await client.get('/api/ratings/prompt/$bookingId')));
+
+  Future<Rating> rate(String bookingId, int score, {String? comment}) async => Rating.fromJson(
+        _map(await client.post('/api/ratings', body: {
+          'bookingId': bookingId,
+          'score': score,
+          if (comment != null && comment.isNotEmpty) 'comment': comment,
+        })),
+      );
+
+  Future<Reputation> reputation(String userId) async =>
+      Reputation.fromJson(_map(await client.get('/api/ratings/users/$userId')));
+
+  // --- Notifications ------------------------------------------------------
+
+  Future<List<AppNotification>> myNotifications({bool onlyUnread = false, int limit = 30}) async =>
+      _list(
+        await client.get('/api/notifications/me',
+            query: {'onlyUnread': onlyUnread, 'limit': limit}),
+        AppNotification.fromJson,
+      );
+
+  /// Just the number, for the badge. Cheaper than fetching a list to count it.
+  Future<int> unreadNotificationCount() async =>
+      (await client.get('/api/notifications/me/unread-count') as num).toInt();
+
+  Future<void> markNotificationRead(String notificationId) =>
+      client.post('/api/notifications/$notificationId/read', body: {});
+
+  Future<void> markAllNotificationsRead() =>
+      client.post('/api/notifications/me/read-all', body: {});
+}
+
+/// What a Tier 2 check-in offers as evidence: the code from the sticker, and where the phone was
+/// when it read it. Either alone is weak — a photographed sticker travels, a GPS fix can be
+/// spoofed — so the API takes them together or not at all.
+class CheckInProof {
+  const CheckInProof({required this.token, required this.latitude, required this.longitude});
+
+  final String token;
+  final double latitude;
+  final double longitude;
 }

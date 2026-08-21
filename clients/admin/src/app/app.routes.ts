@@ -72,6 +72,12 @@ export const routes: Routes = [
         title: 'Disputes · ParkNest',
       },
       {
+        path: 'kyc',
+        canActivate: [adminGuard],
+        loadComponent: () => import('./features/kyc/kyc.component').then((m) => m.KycComponent),
+        title: 'Identity checks · ParkNest',
+      },
+      {
         path: 'payouts',
         canActivate: [adminGuard],
         loadComponent: () =>

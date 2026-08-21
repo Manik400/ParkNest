@@ -7,6 +7,16 @@
          nothing and asking for it invites a refusal the app then has to work around anyway. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
+    <!-- Fine location is for one thing: the geofence half of a Tier 2 check-in. The space has to
+         be within 150 m, and a network fix is routinely wronger than that, so corroborating a scan
+         needs GPS. Searching still runs on the coarse fix. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+
+    <!-- Scanning the check-in sticker. Optional as a feature so a device with no camera can still
+         install the app and check in by tapping. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+
     <application
         android:label="parknest_mobile"
         android:name="${applicationName}"

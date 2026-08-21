@@ -56,7 +56,10 @@ class _HostingScreenState extends State<HostingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Hosting'), actions: const [HomeMenuButton()]),
+      appBar: AppBar(
+        title: const Text('Hosting'),
+        actions: const [NotificationsBell(), HomeMenuButton()],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addListing,
         icon: const Icon(Icons.add),
@@ -108,38 +111,54 @@ class _HostingScreenState extends State<HostingScreen> {
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              // Into the space itself: its photographs, and the check-in code behind them. Both
+              // are things a host can only get to from here.
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => context.push(
+                  '/listings/${listing.id}'
+                  '?title=${Uri.encodeComponent(listing.title)}',
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              listing.title,
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              listing.addressLine,
+                              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${formatCredits(listing.pricePerHour)} / hr'
+                              '${listing.activeBookings > 0 ? ' · ${listing.activeBookings} booked now' : ''}',
+                              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Text(
-                            listing.title,
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            listing.addressLine,
-                            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          StatusChip(listing.status),
                           const SizedBox(height: 8),
-                          Text(
-                            '${formatCredits(listing.pricePerHour)} / hr'
-                            '${listing.activeBookings > 0 ? ' · ${listing.activeBookings} booked now' : ''}',
-                            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
-                          ),
+                          Icon(Icons.chevron_right, size: 20, color: scheme.onSurfaceVariant),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    StatusChip(listing.status),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -35,8 +35,14 @@ public interface IParkNestDbContext
     DbSet<Payout> Payouts { get; }
     DbSet<PaymentOrder> PaymentOrders { get; }
     DbSet<Dispute> Disputes { get; }
+
+    DbSet<DisputeEvidence> DisputeEvidence { get; }
     DbSet<Rating> Ratings { get; }
     DbSet<Notification> Notifications { get; }
+
+    DbSet<DeviceToken> DeviceTokens { get; }
+
+    DbSet<KycSubmission> KycSubmissions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ParkNest.Application.Common;
 using ParkNest.Application.Listings;
 using ParkNest.Application.Queries;
 using ParkNest.Domain.Common;

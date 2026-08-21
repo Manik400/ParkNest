@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ParkNest.Application.Abstractions;
 using ParkNest.Domain.Bookings;
+using ParkNest.Domain.Common;
 using ParkNest.Domain.Disputes;
 using ParkNest.Domain.Listings;
 using ParkNest.Domain.Notifications;
@@ -39,6 +41,8 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
     public DbSet<DisputeEvidence> DisputeEvidence => Set<DisputeEvidence>();
     public DbSet<Rating> Ratings => Set<Rating>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
+    public DbSet<KycSubmission> KycSubmissions => Set<KycSubmission>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         Database.BeginTransactionAsync(cancellationToken);
@@ -93,4 +97,44 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
 
     public void Detach(object entity) => Entry(entity).State = EntityState.Detached;
 
+    /// <summary>
+    /// Postgres error code for an exclusion-constraint violation.
+    /// </summary>
+    private const string ExclusionViolation = "23P01";
+
+    /// <summary>
+    /// Name of the constraint that stops two live bookings covering the same minutes of one space.
+    /// </summary>
+    private const string BookingOverlapConstraint = "bookings_no_overlap";
+
+    /// <summary>
+    /// Turns the database's last word on double-booking into the same message the application
+    /// check gives.
+    ///
+    /// The check in <c>BookingService</c> is a courtesy: it reads the table, then writes, and two
+    /// requests can pass it at the same instant. The exclusion constraint is the guarantee, and it
+    /// speaks Postgres — without this the loser of that race gets a 500 and a stack trace about a
+    /// constraint they have never heard of, for something that is simply "somebody was faster".
+    ///
+    /// Overridden on the overload every other save funnels through, so no call path can slip past
+    /// it into the untranslated exception.
+    /// </summary>
+    public override async Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException
+        {
+            SqlState: ExclusionViolation,
+            ConstraintName: BookingOverlapConstraint
+        })
+        {
+            throw new DomainException(
+                "That space was just booked for part of your window. Pick another time.");
+        }
+    }
 }

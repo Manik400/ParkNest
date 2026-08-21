@@ -6,23 +6,26 @@ import { environment } from '../../environments/environment';
 import {
   BookingDetail,
   BookingQuote,
-  CreateListingRequest,
-  NearbySpace,
-  Vehicle,
   BookingStatus,
-  CancellationTerms,
   BookingSummary,
+  CancellationTerms,
   CityPricingConfig,
+  CreateListingRequest,
   Dispute,
-  Payout,
-  PayoutStatus,
+  KycStatus,
+  KycSubmission,
   LedgerEntrySummary,
   ListingDetail,
   ListingSummary,
+  NearbySpace,
   PaymentOrderView,
+  Payout,
+  PayoutStatus,
   Reconciliation,
+  Reputation,
   StartPaymentResult,
   UpsertBandRequest,
+  Vehicle,
   Wallet,
 } from './models';
 
@@ -253,6 +256,34 @@ export class ApiService {
   rejectDispute(disputeId: string, resolution: string): Observable<Dispute> {
     return this.http.post<Dispute>(`${this.base}/api/admin/disputes/${disputeId}/reject`, {
       resolution,
+    });
+  }
+
+  // --- Reputation -----------------------------------------------------------
+
+  /** A user's ratings and trust score. Any signed-in caller may read one. */
+  reputation(userId: string): Observable<Reputation> {
+    return this.http.get<Reputation>(`${this.base}/api/ratings/users/${userId}`);
+  }
+
+  // --- Admin: identity verification -----------------------------------------
+
+  /** The review queue. Pending by default; a status reads history instead. */
+  kycQueue(status?: KycStatus): Observable<KycSubmission[]> {
+    return this.http.get<KycSubmission[]>(`${this.base}/api/admin/kyc`, {
+      params: status ? new HttpParams().set('status', status) : undefined,
+    });
+  }
+
+  /** Approves the submission, which is what opens cash-out for that host. */
+  verifyKyc(submissionId: string): Observable<KycSubmission> {
+    return this.http.post<KycSubmission>(`${this.base}/api/admin/kyc/${submissionId}/verify`, {});
+  }
+
+  /** Refuses it. The reason is shown to the host, so it has to be actionable. */
+  rejectKyc(submissionId: string, reason: string): Observable<KycSubmission> {
+    return this.http.post<KycSubmission>(`${this.base}/api/admin/kyc/${submissionId}/reject`, {
+      reason,
     });
   }
 

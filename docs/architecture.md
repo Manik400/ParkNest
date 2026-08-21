@@ -29,7 +29,8 @@ The dependency rule is one-directional: `Application` knows `Domain`, `Infrastru
 | Pricing rules | `Application.Pricing` | Pricing Rules Service |
 | Listings + geo-search | `Application.Listings` | Listing & Geo-Search Service |
 | Identity | `Application.Auth` | Auth & Identity Service |
-| Notifications | *not built* | Notification Service |
+| Notifications | `Application.Notifications` | Notification Service |
+| Ratings / reputation | `Application.Ratings` | Trust & Rating Service |
 | Payments | `Application.Payments` | Payment Service |
 | Disputes | `Application.Disputes` | Admin / Dispute Service |
 

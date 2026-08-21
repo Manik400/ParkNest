@@ -134,3 +134,12 @@ public sealed record WalletChanged(
 {
     public static string EventName => "wallet.changed";
 }
+
+/// <param name="Reason">Why it was refused, for the message the host gets. Null when approved.</param>
+public sealed record KycReviewed(
+    Guid UserId,
+    bool Verified,
+    string? Reason) : IIntegrationEvent
+{
+    public static string EventName => "kyc.reviewed";
+}

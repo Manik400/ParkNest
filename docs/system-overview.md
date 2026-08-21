@@ -423,10 +423,10 @@ city pricing bands (read constantly, written rarely by an admin) and hot geo-sea
 with defaults — no `EnableRetryOnFailure`, no explicit pool sizing, no `AddDbContextPool`. Fine for
 one instance; needs deliberate tuning before multiple API instances share one Postgres.
 
-**8. Overstay is billed in one shot at checkout.** PRD §10.3 wants incremental debits *during* the
-session with a push notification per increment. That needs the background metering job and SignalR
-(Phase 1). Relatedly, `OverstayGraceMinutes` is configured but not enforced — there is no running
-timer to enforce it against.
+**8. Nothing pushes to a handset that is not connected.** The overstay meter now bills during the
+session and both SignalR and FCM carry each increment, which is what PRD §10.3 asks for — but the
+Flutter app has no Firebase wiring, so in practice a renter still learns about an over-run when
+they next open the app. The API side of push is built; the missing piece is a Firebase project.
 
 ### Where this goes
 

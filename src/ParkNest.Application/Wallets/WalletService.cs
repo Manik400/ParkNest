@@ -197,7 +197,22 @@ public sealed class WalletService : IWalletService
 
         if (host.KycStatus != KycStatus.Verified)
         {
-            throw new DomainException("KYC must be verified before a cash-out can be requested.");
+            // Said in terms of what to do about it. "KYC must be verified" is a status; the host
+            // needs to know there is a screen where they can fix it.
+            throw new DomainException(
+                host.KycStatus == KycStatus.Pending
+                    ? "Your identity check is still being reviewed. Cash-out opens as soon as it clears."
+                    : "Verify your identity before cashing out.");
+        }
+
+        // The trust score gates this and nothing else, which is the point: money leaving the
+        // platform is the movement that cannot be undone cheaply, and a host with a sustained
+        // record of violations is exactly who should be talked to before it does.
+        if (_options.MinimumTrustScoreForCashOut > 0
+            && host.TrustScore < _options.MinimumTrustScoreForCashOut)
+        {
+            throw new DomainException(
+                "Your account is under review after repeated session problems. Contact support to release earnings.");
         }
 
         var wallet = await GetOrCreateWalletAsync(hostId, cancellationToken);

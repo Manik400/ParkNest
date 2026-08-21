@@ -4,6 +4,8 @@
 <dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>ParkNest uses your location to show parking spaces near you. Searching works without it, from the city centre.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ParkNest uses the camera to scan the check-in code at a parking space. You can always check in by tapping instead.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

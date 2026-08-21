@@ -235,3 +235,43 @@ void showMessage(BuildContext context, String message) {
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(message), behavior: SnackBarBehavior.floating));
 }
+
+/// Five taps, one score. Shared by the rating form and anywhere a score is only displayed, so a
+/// three-star rating is drawn the same way whether it is being given or read.
+class StarPicker extends StatelessWidget {
+  const StarPicker({required this.score, this.onChanged, this.size = 36, super.key});
+
+  final int score;
+
+  /// Null makes it a read-only display rather than a disabled control: a rating someone has
+  /// already left is not an input the user is temporarily barred from.
+  final ValueChanged<int>? onChanged;
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Row(
+      mainAxisAlignment: onChanged == null ? MainAxisAlignment.start : MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var star = 1; star <= 5; star++)
+          IconButton(
+            onPressed: onChanged == null ? null : () => onChanged!(star),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: BoxConstraints.tightFor(width: size + 8, height: size + 8),
+            icon: Icon(
+              star <= score ? Icons.star_rounded : Icons.star_outline_rounded,
+              size: size,
+              // A filled star keeps its colour when the control is read-only; a greyed-out
+              // rating would read as withdrawn rather than recorded.
+              color: star <= score ? scheme.primary : scheme.onSurfaceVariant,
+            ),
+          ),
+      ],
+    );
+  }
+}

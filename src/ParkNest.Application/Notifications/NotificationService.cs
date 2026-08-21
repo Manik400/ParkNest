@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using ParkNest.Application.Abstractions;
 using ParkNest.Domain.Common;
 using ParkNest.Domain.Notifications;
@@ -38,12 +39,21 @@ public sealed class NotificationService : INotificationService
     private readonly IParkNestDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
+    private readonly IPushSender _push;
+    private readonly ILogger<NotificationService> _logger;
 
-    public NotificationService(IParkNestDbContext db, ICurrentUser currentUser, IClock clock)
+    public NotificationService(
+        IParkNestDbContext db,
+        ICurrentUser currentUser,
+        IClock clock,
+        IPushSender push,
+        ILogger<NotificationService> logger)
     {
         _db = db;
         _currentUser = currentUser;
         _clock = clock;
+        _push = push;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<NotificationView>> GetMineAsync(
@@ -129,6 +139,11 @@ public sealed class NotificationService : INotificationService
         _db.Notifications.Add(notification);
         await _db.SaveChangesAsync(cancellationToken);
 
+        // Only after the row is committed. A push that arrives before the message it announces
+        // exists sends the user to a list that does not have it yet, and a push sent for a save
+        // that then failed is a message about something that never happened.
+        await PushAsync(notification, cancellationToken);
+
         return new NotificationView(
             notification.Id,
             notification.Kind,
@@ -137,5 +152,48 @@ public sealed class NotificationService : INotificationService
             notification.SubjectId,
             false,
             notification.CreatedAt);
+    }
+
+    /// <summary>
+    /// The best-effort half: the same title and body, to whatever devices this user has
+    /// registered.
+    ///
+    /// Nothing here may fail the caller. This runs inside an event handler, on the far side of a
+    /// booking that has already settled, and the durable notification is written either way — so
+    /// a Firebase outage costs a phone buzz, not a checkout. Tokens the platform reports as dead
+    /// are pruned on the spot, since nothing else would ever notice them.
+    /// </summary>
+    private async Task PushAsync(Notification notification, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var devices = await _db.DeviceTokens
+                .Where(d => d.UserId == notification.UserId)
+                .ToListAsync(cancellationToken);
+
+            if (devices.Count == 0)
+            {
+                return;
+            }
+
+            var dead = await _push.SendAsync(
+                devices.Select(d => d.Token).ToList(),
+                new PushMessage(notification.Title, notification.Body, notification.Kind, notification.SubjectId),
+                cancellationToken);
+
+            if (dead.Count == 0)
+            {
+                return;
+            }
+
+            _db.DeviceTokens.RemoveRange(devices.Where(d => dead.Contains(d.Token)));
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex, "Could not push notification {NotificationId} to {UserId}.",
+                notification.Id, notification.UserId);
+        }
     }
 }

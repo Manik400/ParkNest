@@ -245,4 +245,142 @@ void main() {
     });
   });
 
+  group('Reputation', () {
+    test('nobody having rated you is not the same as being rated zero', () {
+      final reputation = Reputation.fromJson({
+        'userId': '11111111-1111-1111-1111-111111111111',
+        'trustScore': 100,
+        'averageScore': null,
+        'ratingCount': 0,
+        'recent': <dynamic>[],
+      });
+
+      // The screen shows "No ratings yet" off this null. A zero would have rendered as 0.0 stars
+      // against a brand-new host, which reads as the opposite of the truth.
+      expect(reputation.averageScore, isNull);
+      expect(reputation.trustScore, 100);
+    });
+
+    test('carries the recent ratings behind the average', () {
+      final reputation = Reputation.fromJson({
+        'userId': '11111111-1111-1111-1111-111111111111',
+        'trustScore': 88,
+        'averageScore': 4.5,
+        'ratingCount': 2,
+        'recent': [
+          {
+            'id': '44444444-4444-4444-4444-444444444444',
+            'bookingId': '55555555-5555-5555-5555-555555555555',
+            'toUserId': '11111111-1111-1111-1111-111111111111',
+            'score': 4,
+            'comment': 'Easy to find.',
+            'createdAt': '2026-08-19T10:00:00+00:00',
+          },
+        ],
+      });
+
+      expect(reputation.averageScore, 4.5);
+      expect(reputation.recent.single.score, 4);
+      expect(reputation.recent.single.comment, 'Easy to find.');
+    });
+  });
+
+  group('RatingPrompt', () {
+    test('a refusal still names who it would have been about', () {
+      final prompt = RatingPrompt.fromJson({
+        'bookingId': '55555555-5555-5555-5555-555555555555',
+        'canRate': false,
+        'aboutUserId': '11111111-1111-1111-1111-111111111111',
+        'reason': 'You have already rated this booking.',
+      });
+
+      // Which is what lets the screen offer their reputation instead of showing nothing.
+      expect(prompt.canRate, isFalse);
+      expect(prompt.aboutUserId, isNotNull);
+      expect(prompt.reason, contains('already'));
+    });
+  });
+
+  group('AppNotification', () {
+    test('reads the subject it points at', () {
+      final notification = AppNotification.fromJson({
+        'id': '66666666-6666-6666-6666-666666666666',
+        'kind': 'overstay.charged',
+        'title': 'You are past your slot',
+        'body': '₹40.00 taken for 15 extra minutes.',
+        'subjectId': '55555555-5555-5555-5555-555555555555',
+        'isRead': false,
+        'createdAt': '2026-08-19T10:00:00+00:00',
+      });
+
+      expect(notification.kind, 'overstay.charged');
+      expect(notification.isRead, isFalse);
+      expect(notification.subjectId, '55555555-5555-5555-5555-555555555555');
+    });
+  });
+
+  group('KycState', () {
+    test('cash-out is answered by the server, not inferred from the status', () {
+      final state = KycState.fromJson({
+        'status': 'Pending',
+        'canCashOut': false,
+        'latest': {
+          'id': '77777777-7777-7777-7777-777777777777',
+          'legalName': 'Asha Menon',
+          'documentType': 'Pan',
+          'documentLast4': '234F',
+          'documentPhotoUrl': '/media/abc.jpg',
+          'payoutAccountLast4': '6789',
+          'status': 'Pending',
+          'submittedAt': '2026-08-21T10:00:00+00:00',
+          'reviewedAt': null,
+          'rejectionReason': null,
+        },
+      });
+
+      expect(state.isPending, isTrue);
+      expect(state.canCashOut, isFalse);
+      // Four characters is all the API returns, and all the app ever holds.
+      expect(state.latest!.documentLast4, '234F');
+    });
+
+    test('a refusal carries the reason the host has to act on', () {
+      final state = KycState.fromJson({
+        'status': 'Rejected',
+        'canCashOut': false,
+        'latest': {
+          'id': '77777777-7777-7777-7777-777777777777',
+          'legalName': 'Asha Menon',
+          'documentType': 'Pan',
+          'documentLast4': '234F',
+          'documentPhotoUrl': null,
+          'payoutAccountLast4': null,
+          'status': 'Rejected',
+          'submittedAt': '2026-08-21T10:00:00+00:00',
+          'reviewedAt': '2026-08-21T12:00:00+00:00',
+          'rejectionReason': 'The photograph is too blurred to read.',
+        },
+      });
+
+      // Without it the host resubmits exactly the same thing and nothing improves.
+      expect(state.isRejected, isTrue);
+      expect(state.latest!.rejectionReason, contains('blurred'));
+      expect(state.latest!.reviewedAt, isNotNull);
+    });
+  });
+
+  group('ListingPhoto', () {
+    test('keeps the server-issued path rather than building one', () {
+      final photo = ListingPhoto.fromJson({
+        'id': '88888888-8888-8888-8888-888888888888',
+        'url': '/media/9f2c.jpg',
+        'sortOrder': 0,
+      });
+
+      // The server decides where photos are served from; a client that assembled the path itself
+      // would break the day storage moves off local disk.
+      expect(photo.url, '/media/9f2c.jpg');
+      expect(photo.sortOrder, 0);
+    });
+  });
 }
