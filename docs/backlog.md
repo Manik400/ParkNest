@@ -157,19 +157,50 @@ Phases follow PRD §18. Items are ordered within each phase.
       recent comments before the decision. Shown for both on purpose: a dispute where only the
       complainant is looked up is a dispute decided on who complained.
 
+- [x] **FCM in the app.** `PushService` initialises Firebase, asks for the permission after
+      sign-in rather than at launch, registers the token on every start because the platform
+      rotates it whenever it likes, re-registers on refresh, and unregisters on sign-out — before
+      the session is cleared, because that endpoint is authorised. A foreground push moves the
+      bell's badge immediately instead of waiting up to a minute for the poll. The Google Services
+      Gradle plugin is applied only when `google-services.json` is present, so a clone with no
+      Firebase project still builds and runs; `Firebase.initializeApp` throwing is caught and
+      leaves push disabled with everything else intact.
+- [x] **Who is on call.** [ops/on-call.md](../ops/on-call.md): the rota, how to wire a real
+      receiver, and what to do when each of the three rules fires — including the rule that the
+      ledger is never corrected by editing a balance.
+
 ### Left over from Phase 1
 
-- **FCM in the app.** The API registers device tokens and pushes to them; the Flutter side needs a
-  Firebase project, `google-services.json` and `firebase_messaging` before it can hand one over.
-  That is an account to create, not code to write.
-- **Who is on call.** Alertmanager routes; the rota is not a configuration file.
+- **A Firebase project.** The app is wired end to end and degrades cleanly without one. What is
+  missing is an account: create the project, download `google-services.json` into
+  `clients/mobile/android/app/`, and push starts working on the next build. It is git-ignored, so
+  one developer's project cannot silently become everybody's.
+- **Names in the rota.** `ops/on-call.md` has the structure and the response steps; the three
+  rows are deliberately blank. A placeholder looks answered, which is worse than an empty row.
 
 ## Phase 2 — Multi-city
 
-- [ ] Redis caching for geo-search results
-- [ ] Dynamic band management with audit history
-- [ ] KYC flow end to end; escrow partnership finalised
-- [ ] B2B pilot: housing societies and office parks
+- [x] **Redis caching for geo-search results.** A decorator over the PostGIS query, left out of the
+      chain entirely when caching is off rather than registered and told to stand aside. Three
+      providers: `None` (the default — one indexed query is inside its latency budget for a single
+      city), `Memory` (the whole benefit on a single instance, and stale on every other one), and
+      `Redis` (the multi-city answer). The origin is rounded into a grid before it becomes a key,
+      because without that a phone's GPS jitter mints a new key per tap and the cache never hits;
+      the cost is that distances are measured from the rounded point, which is why the precision is
+      configuration. Every filter is in the key. Invalidation moves a generation counter rather
+      than deleting keys — a listing appearing or being withdrawn changes the answer for every
+      origin within its radius, and those keys were built from coordinates nobody recorded.
+- [x] **Dynamic band management with audit history.** Bands change without a deploy, which is the
+      point of them, and therefore without a commit — so `pricing_band_changes` is the only record
+      of how a city's price ceiling got where it is. Append-only, one row per edit, holding both
+      sides of it, who made it and why. City and zone are copied onto the row rather than joined,
+      so the history outlives the band. Deactivation is its own kind because it stops every listing
+      in that zone validating. The console shows the trail under the bands, scoped to one or across
+      the platform.
+- [ ] KYC flow end to end; escrow partnership finalised — KYC itself shipped in Phase 0
+      (submission, operator review, verification gating cash-out). The escrow partnership is the
+      open half, and it is a commercial arrangement rather than code.
+- [ ] B2B pilot: housing societies and office parks. Not a code item — it needs pilot sites.
 
 ## Phase 3 — Advanced
 

@@ -9,15 +9,19 @@ backlog are in [docs/](docs/README.md).
 
 ## Status
 
-Phase 0 is complete in code. The credit ledger, pricing rules engine, booking lifecycle,
-authentication, credit purchase, disputes, payouts, listing photos and the cancellation policy are
-all implemented and tested; the Angular admin console and the Flutter app both run against them.
-What remains is Razorpay against the live API, which needs credentials and an escrow arrangement
-rather than more code.
+Phase 0 and Phase 1 are complete in code, and Phase 2 has started. The credit ledger, pricing
+rules engine, booking lifecycle, authentication, credit purchase, disputes, payouts, listing
+photos and the cancellation policy are all implemented and tested; the Angular admin console and
+the Flutter app both run against them.
+
+What remains is not code. Razorpay against the live API needs credentials and an escrow
+arrangement; push on a handset needs a Firebase project; the on-call rota needs names. Each is an
+account to open or a decision to take, and the code on this side of all three is written and
+degrades cleanly without them.
 
 | Area | State |
 |---|---|
-| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 266 tests green |
+| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 288 tests green |
 | Pricing rules engine (city bands, billing increments, overstay multiplier) | Implemented |
 | Booking lifecycle + Tier 1 app-confirmed detection | Implemented |
 | Listings + PostGIS geo-search | Implemented |
@@ -41,6 +45,9 @@ rather than more code.
 | SignalR | Live session, overstay and wallet updates on a per-user group |
 | Metrics | Prometheus at `/metrics`, plus an hourly ledger reconciliation gauge |
 | Dashboards and alerts | Provisioned Grafana, Prometheus and Alertmanager in `docker compose`. See [ops/](ops/README.md) |
+| Geo-search cache | Optional. `Cache:Provider` of None / Memory / Redis; off by default, invalidated on listing changes |
+| Pricing band audit | Every band edit recorded with both sides, the operator and the reason; visible in the console |
+| On-call | [ops/on-call.md](ops/on-call.md) — routing, response steps per alert. The rota itself is unfilled |
 | Flutter renter + host app | Sign-in, map search from your location, quote, book, session, wallet, vehicles, listing a space, disputes, QR check-in, ratings, notifications |
 
 ## Layout
@@ -71,7 +78,7 @@ to get it, not a requirement — a local PostGIS-enabled Postgres works just as 
 `ConnectionStrings:ParkNest` at it.
 
 ```bash
-docker compose up -d                 # optional: Postgres + PostGIS (Redis and RabbitMQ are unused until Phase 1)
+docker compose up -d                 # optional: Postgres + PostGIS (Redis and RabbitMQ are both optional - see Configuration)
 dotnet tool restore                  # pins dotnet-ef 8.0.10
 dotnet dotnet-ef database update --project src/ParkNest.Infrastructure --startup-project src/ParkNest.Api
 dotnet run --project src/ParkNest.Api --launch-profile https
@@ -85,7 +92,7 @@ nothing in the API log to explain it.
 Swagger is at `/swagger` in Development; `/health` is always available.
 
 ```bash
-dotnet test tests/ParkNest.UnitTests  # 266 tests, no Docker required
+dotnet test tests/ParkNest.UnitTests  # 288 tests, no Docker required
 ```
 
 Tests run on in-memory SQLite, so they need no container and finish in about a second.
@@ -213,9 +220,32 @@ not connected — so a deployment with no Firebase project loses nothing but the
 }
 ```
 
-The app has no Firebase wiring yet, so nothing registers a device token in practice. The
-endpoints (`POST /api/devices`, `POST /api/devices/unregister`) and the sender are built and
-tested; what is missing is a Firebase project and `google-services.json`.
+Geo-search can sit behind a cache. It is off by default because one indexed PostGIS query is
+already inside its latency budget for a single city, and requiring Redis to run the app would be
+paying a multi-city cost years early.
+
+```jsonc
+"Cache": { "Provider": "None" }      // every search hits PostGIS
+"Cache": { "Provider": "Memory" }    // in-process: the whole benefit on one instance, stale on any other
+"Cache": { "Provider": "Redis", "ConnectionString": "localhost:6379" }
+```
+
+Development defaults to `Memory`, so the caching path actually runs locally without anybody
+installing Redis. Publishing or withdrawing a listing invalidates every cached search; `SearchTtlSeconds`
+caps how stale anything can get through a path nothing thought to invalidate. `OriginPrecision` is
+how many decimal places of latitude and longitude go into the key — four is about 11 metres, and
+without that rounding a phone's GPS jitter mints a new key on every tap and the cache never hits.
+
+The app registers its token now. `PushService` asks for the permission after sign-in rather than
+at launch, re-registers on every start because the platform rotates tokens on its own schedule,
+and unregisters on sign-out before the session is cleared — so a borrowed handset stops receiving
+the previous account's bookings.
+
+What is still missing is a Firebase project. Create one, download `google-services.json` into
+`clients/mobile/android/app/`, and push starts working on the next build: the Google Services
+Gradle plugin is applied only when that file is present, so a clone without it builds and runs
+exactly as before. The file is git-ignored, because one developer's Firebase project silently
+becoming everybody's is not a good failure.
 
 ## A note on the database
 
