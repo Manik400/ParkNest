@@ -35,6 +35,7 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
     public DbSet<LedgerTransaction> LedgerTransactions => Set<LedgerTransaction>();
     public DbSet<LedgerEntry> LedgerEntries => Set<LedgerEntry>();
     public DbSet<CityPricingConfig> CityPricingConfigs => Set<CityPricingConfig>();
+    public DbSet<PricingBandChange> PricingBandChanges => Set<PricingBandChange>();
     public DbSet<Payout> Payouts => Set<Payout>();
     public DbSet<PaymentOrder> PaymentOrders => Set<PaymentOrder>();
     public DbSet<Dispute> Disputes => Set<Dispute>();

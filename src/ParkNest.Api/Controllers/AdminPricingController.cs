@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ParkNest.Application.Abstractions;
+using ParkNest.Application.Pricing;
 using ParkNest.Domain.Common;
 using ParkNest.Domain.Pricing;
 
@@ -8,74 +7,58 @@ namespace ParkNest.Api.Controllers;
 
 /// <summary>
 /// Price bands are operational data, not code (PRD §9) — ops changes them here, never by deploy.
+/// Which is exactly why every change is recorded: a band that moves without a deploy also moves
+/// without a commit, and <c>/history</c> is the only thing standing between that and a price
+/// nobody can account for.
 /// </summary>
 [ApiController]
 [Route("api/admin/pricing")]
 public sealed class AdminPricingController : ControllerBase
 {
-    private readonly IParkNestDbContext _db;
-    private readonly IClock _clock;
-    private readonly ICurrentUser _currentUser;
+    private readonly IPricingBandAdminService _bands;
 
-    public AdminPricingController(IParkNestDbContext db, IClock clock, ICurrentUser currentUser)
-    {
-        _db = db;
-        _clock = clock;
-        _currentUser = currentUser;
-    }
+    public AdminPricingController(IPricingBandAdminService bands) => _bands = bands;
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<CityPricingConfig>>> List(
         [FromQuery] string? city,
-        CancellationToken cancellationToken)
-    {
-        _currentUser.RequireAdmin();
-
-        var query = _db.CityPricingConfigs.AsQueryable();
-        if (!string.IsNullOrWhiteSpace(city))
-        {
-            query = query.Where(c => c.City == city);
-        }
-
-        return Ok(await query.OrderBy(c => c.City).ThenBy(c => c.Zone).ToListAsync(cancellationToken));
-    }
+        CancellationToken cancellationToken) =>
+        Ok(await _bands.ListAsync(city, cancellationToken));
 
     [HttpPut]
     public async Task<ActionResult<CityPricingConfig>> Upsert(
         [FromBody] UpsertBandRequest request,
-        CancellationToken cancellationToken)
-    {
-        _currentUser.RequireAdmin();
+        CancellationToken cancellationToken) =>
+        Ok(await _bands.UpsertAsync(
+            new UpsertPricingBand(
+                request.City,
+                request.Zone,
+                request.VehicleType,
+                request.MinPricePerHour,
+                request.MaxPricePerHour,
+                request.OverstayMultiplier,
+                request.IsActive,
+                request.Reason),
+            cancellationToken));
 
-        if (request.MinPricePerHour > request.MaxPricePerHour)
-        {
-            throw new DomainException("Minimum price cannot exceed maximum price.");
-        }
+    /// <summary>
+    /// Switches a band on or off without touching its numbers, so the prices are still there to
+    /// read when somebody asks what this city used to allow.
+    /// </summary>
+    [HttpPost("{bandId:guid}/active")]
+    public async Task<ActionResult<CityPricingConfig>> SetActive(
+        Guid bandId,
+        [FromBody] SetBandActiveRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await _bands.SetActiveAsync(bandId, request.IsActive, request.Reason, cancellationToken));
 
-        var existing = await _db.CityPricingConfigs.FirstOrDefaultAsync(
-            c => c.City == request.City && c.Zone == request.Zone && c.VehicleType == request.VehicleType,
-            cancellationToken);
-
-        if (existing is null)
-        {
-            existing = new CityPricingConfig
-            {
-                City = request.City,
-                Zone = request.Zone,
-                VehicleType = request.VehicleType
-            };
-            _db.CityPricingConfigs.Add(existing);
-        }
-
-        existing.MinPricePerHour = Money.Round(request.MinPricePerHour);
-        existing.MaxPricePerHour = Money.Round(request.MaxPricePerHour);
-        existing.OverstayMultiplier = request.OverstayMultiplier;
-        existing.IsActive = request.IsActive;
-        existing.UpdatedAt = _clock.UtcNow;
-
-        await _db.SaveChangesAsync(cancellationToken);
-        return Ok(existing);
-    }
+    /// <summary>Every recorded edit, newest first. Whole platform unless a band is named.</summary>
+    [HttpGet("history")]
+    public async Task<ActionResult<IReadOnlyList<PricingBandChange>>> History(
+        [FromQuery] Guid? bandId,
+        [FromQuery] int limit,
+        CancellationToken cancellationToken) =>
+        Ok(await _bands.HistoryAsync(bandId, limit <= 0 ? 100 : limit, cancellationToken));
 }
 
 public sealed record UpsertBandRequest(
@@ -85,4 +68,7 @@ public sealed record UpsertBandRequest(
     decimal MinPricePerHour,
     decimal MaxPricePerHour,
     decimal OverstayMultiplier = 1.0m,
-    bool IsActive = true);
+    bool IsActive = true,
+    string? Reason = null);
+
+public sealed record SetBandActiveRequest(bool IsActive, string? Reason = null);

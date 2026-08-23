@@ -15,6 +15,7 @@ public static class DependencyInjection
         services.AddScoped<ILedgerService, LedgerService>();
         services.AddScoped<IWalletService, WalletService>();
         services.AddScoped<IPricingService, PricingService>();
+        services.AddScoped<IPricingBandAdminService, PricingBandAdminService>();
         services.AddScoped<IListingService, ListingService>();
         services.AddScoped<IListingPhotoService, ListingPhotoService>();
         services.AddScoped<IBookingService, BookingService>();

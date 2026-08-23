@@ -1,21 +1,27 @@
-import { CurrencyPipe } from '@angular/common';
+import { CurrencyPipe, DatePipe } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { ApiService } from '../../core/api.service';
-import { CityPricingConfig, UpsertBandRequest, VehicleType } from '../../core/models';
+import {
+  CityPricingConfig,
+  PricingBandChange,
+  UpsertBandRequest,
+  VehicleType,
+} from '../../core/models';
 
 @Component({
   selector: 'app-pricing',
   standalone: true,
-  imports: [CurrencyPipe, FormsModule],
+  imports: [CurrencyPipe, DatePipe, FormsModule],
   template: `
     <div class="stack">
       <div>
         <h1>Pricing bands</h1>
         <p class="muted">
           Min and max hourly rate a host may charge, per city, zone and vehicle type. Bands are
-          data, not code — changes take effect without a deploy.
+          data, not code — changes take effect without a deploy, which is also why every one of
+          them is recorded below.
         </p>
       </div>
 
@@ -81,6 +87,21 @@ import { CityPricingConfig, UpsertBandRequest, VehicleType } from '../../core/mo
             <small class="muted">Capped at the platform ceiling (2.0).</small>
           </div>
 
+          <div class="wide">
+            <label for="reason">Reason</label>
+            <input
+              id="reason"
+              name="reason"
+              [ngModel]="form.reason ?? ''"
+              (ngModelChange)="form.reason = $event || null"
+              placeholder="Festival demand in the CBD"
+            />
+            <!-- Optional, because a required field produces "update" and nothing else. Asked for
+                 anyway: the numbers are already in the history, the reason is the only part of a
+                 price change that cannot be reconstructed later. -->
+            <small class="muted">Optional, and the one thing the history cannot infer.</small>
+          </div>
+
           <div class="actions">
             <button class="primary" type="submit" [disabled]="busy()">Save band</button>
             @if (isExisting()) {
@@ -116,7 +137,7 @@ import { CityPricingConfig, UpsertBandRequest, VehicleType } from '../../core/mo
               </thead>
               <tbody>
                 @for (band of bands(); track band.id) {
-                  <tr>
+                  <tr [class.inactive]="!band.isActive">
                     <td>{{ band.city }}</td>
                     <td>{{ band.zone ?? '—' }}</td>
                     <td>{{ band.vehicleType }}</td>
@@ -124,7 +145,67 @@ import { CityPricingConfig, UpsertBandRequest, VehicleType } from '../../core/mo
                     <td class="numeric">{{ band.maxPricePerHour | currency: 'INR' : 'symbol' : '1.2-2' }}</td>
                     <td class="numeric">{{ band.overstayMultiplier }}</td>
                     <td>{{ band.isActive ? 'Yes' : 'No' }}</td>
-                    <td><button type="button" (click)="edit(band)">Edit</button></td>
+                    <td class="row-actions">
+                      <button type="button" (click)="edit(band)">Edit</button>
+                      <button type="button" (click)="toggleActive(band)" [disabled]="busy()">
+                        {{ band.isActive ? 'Deactivate' : 'Activate' }}
+                      </button>
+                      <button type="button" (click)="showHistory(band)">History</button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </section>
+
+      <section class="card stack">
+        <div class="history-head">
+          <h2>
+            @if (scopedBand(); as band) {
+              Changes to {{ band.city }}{{ band.zone ? ' / ' + band.zone : '' }} ({{ band.vehicleType }})
+            } @else {
+              Recent changes
+            }
+          </h2>
+
+          @if (scopedBand()) {
+            <button type="button" (click)="showHistory(null)">Show all</button>
+          }
+        </div>
+
+        @if (historyLoading()) {
+          <p class="muted">Loading…</p>
+        } @else if (history().length === 0) {
+          <p class="muted">Nothing recorded yet.</p>
+        } @else {
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Band</th>
+                  <th>Change</th>
+                  <th>Was</th>
+                  <th>Became</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (change of history(); track change.id) {
+                  <tr>
+                    <td>{{ change.changedAt | date: 'medium' }}</td>
+                    <td>
+                      {{ change.city }}{{ change.zone ? ' / ' + change.zone : '' }}
+                      <span class="muted">· {{ change.vehicleType }}</span>
+                    </td>
+                    <td><span class="tag tag--{{ change.kind.toLowerCase() }}">{{ change.kind }}</span></td>
+                    <!-- A Created row has no "was", and printing 0.00 there would read as a band
+                         that used to be free rather than one that did not exist. -->
+                    <td>{{ change.previousMinPricePerHour === null ? '—' : describePrevious(change) }}</td>
+                    <td>{{ describeCurrent(change) }}</td>
+                    <td>{{ change.reason ?? '—' }}</td>
                   </tr>
                 }
               </tbody>
@@ -143,9 +224,44 @@ import { CityPricingConfig, UpsertBandRequest, VehicleType } from '../../core/mo
         align-items: end;
       }
 
+      .wide {
+        grid-column: 1 / -1;
+      }
+
       .actions {
         display: flex;
         gap: var(--space-2);
+      }
+
+      .row-actions {
+        display: flex;
+        gap: var(--space-2);
+        white-space: nowrap;
+      }
+
+      .history-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--space-4);
+      }
+
+      /* A deactivated band still shows its numbers — dimmed, not hidden, because "what did this
+         city allow before we switched it off" is exactly the question this screen gets asked. */
+      tr.inactive td {
+        opacity: 0.55;
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        border: 1px solid currentColor;
+      }
+
+      .tag--deactivated {
+        color: var(--danger, #b3261e);
       }
 
       small {
@@ -160,7 +276,10 @@ export class PricingComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   readonly bands = signal<CityPricingConfig[]>([]);
+  readonly history = signal<PricingBandChange[]>([]);
+  readonly scopedBand = signal<CityPricingConfig | null>(null);
   readonly loading = signal(true);
+  readonly historyLoading = signal(true);
   readonly busy = signal(false);
   readonly saved = signal(false);
   readonly error = signal<string | null>(null);
@@ -170,6 +289,7 @@ export class PricingComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.loadHistory(null);
   }
 
   edit(band: CityPricingConfig): void {
@@ -181,6 +301,9 @@ export class PricingComponent implements OnInit {
       maxPricePerHour: band.maxPricePerHour,
       overstayMultiplier: band.overstayMultiplier,
       isActive: band.isActive,
+      // Deliberately not carried over from the previous edit. A reason belongs to one change, and
+      // a stale one silently attached to the next is worse than no reason at all.
+      reason: null,
     };
 
     this.isExisting.set(true);
@@ -213,12 +336,77 @@ export class PricingComponent implements OnInit {
         this.saved.set(true);
         this.reset();
         this.load();
+        this.loadHistory(this.scopedBand()?.id ?? null);
       },
       error: (err: Error) => {
         this.busy.set(false);
         this.error.set(err.message);
       },
     });
+  }
+
+  toggleActive(band: CityPricingConfig): void {
+    const turningOff = band.isActive;
+
+    // Confirmed only in the disruptive direction. Switching a band off stops every listing in that
+    // city or zone from publishing or repricing, and it is one click away from Edit.
+    if (turningOff && !confirm(`Deactivate the ${band.city} band? No listing there can be published or repriced while it is off.`)) {
+      return;
+    }
+
+    this.busy.set(true);
+    this.error.set(null);
+
+    this.api.setBandActive(band.id, { isActive: !band.isActive, reason: null }).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.load();
+        this.loadHistory(this.scopedBand()?.id ?? null);
+      },
+      error: (err: Error) => {
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  showHistory(band: CityPricingConfig | null): void {
+    this.scopedBand.set(band);
+    this.loadHistory(band?.id ?? null);
+  }
+
+  describePrevious(change: PricingBandChange): string {
+    return this.describe(
+      change.previousMinPricePerHour,
+      change.previousMaxPricePerHour,
+      change.previousOverstayMultiplier,
+      change.previousIsActive,
+    );
+  }
+
+  describeCurrent(change: PricingBandChange): string {
+    return this.describe(
+      change.minPricePerHour,
+      change.maxPricePerHour,
+      change.overstayMultiplier,
+      change.isActive,
+    );
+  }
+
+  private describe(
+    min: number | null,
+    max: number | null,
+    multiplier: number | null,
+    active: boolean | null,
+  ): string {
+    if (min === null || max === null) {
+      return '—';
+    }
+
+    const range = `₹${min.toFixed(2)}–${max.toFixed(2)}/hr`;
+    const overstay = multiplier === null ? '' : ` · ${multiplier}×`;
+    const state = active === false ? ' · off' : '';
+    return `${range}${overstay}${state}`;
   }
 
   private load(): void {
@@ -236,6 +424,21 @@ export class PricingComponent implements OnInit {
     });
   }
 
+  private loadHistory(bandId: string | null): void {
+    this.historyLoading.set(true);
+
+    this.api.bandHistory(bandId ?? undefined).subscribe({
+      next: (changes) => {
+        this.history.set(changes);
+        this.historyLoading.set(false);
+      },
+      error: (err: Error) => {
+        this.error.set(err.message);
+        this.historyLoading.set(false);
+      },
+    });
+  }
+
   private blank(): UpsertBandRequest {
     return {
       city: '',
@@ -245,6 +448,7 @@ export class PricingComponent implements OnInit {
       maxPricePerHour: 120,
       overstayMultiplier: 1.25,
       isActive: true,
+      reason: null,
     };
   }
 }

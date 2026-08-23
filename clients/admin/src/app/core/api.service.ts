@@ -24,6 +24,8 @@ import {
   Reconciliation,
   Reputation,
   StartPaymentResult,
+  PricingBandChange,
+  SetBandActiveRequest,
   UpsertBandRequest,
   Vehicle,
   Wallet,
@@ -213,6 +215,24 @@ export class ApiService {
 
   upsertBand(request: UpsertBandRequest): Observable<CityPricingConfig> {
     return this.http.put<CityPricingConfig>(`${this.base}/api/admin/pricing`, request);
+  }
+
+  /** Switches a band on or off without disturbing its numbers, so the history stays readable. */
+  setBandActive(bandId: string, request: SetBandActiveRequest): Observable<CityPricingConfig> {
+    return this.http.post<CityPricingConfig>(
+      `${this.base}/api/admin/pricing/${bandId}/active`,
+      request,
+    );
+  }
+
+  /** Recorded edits, newest first. Whole platform unless a band is named. */
+  bandHistory(bandId?: string, limit = 100): Observable<PricingBandChange[]> {
+    let params = new HttpParams().set('limit', limit);
+    if (bandId) {
+      params = params.set('bandId', bandId);
+    }
+
+    return this.http.get<PricingBandChange[]>(`${this.base}/api/admin/pricing/history`, { params });
   }
 
   // --- Disputes -------------------------------------------------------------

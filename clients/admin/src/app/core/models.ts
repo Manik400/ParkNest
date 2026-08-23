@@ -221,6 +221,40 @@ export interface UpsertBandRequest {
   maxPricePerHour: number;
   overstayMultiplier: number;
   isActive: boolean;
+  /** Free text, asked for on every edit — it is the part the audit row cannot reconstruct. */
+  reason: string | null;
+}
+
+export type PricingBandChangeKind = 'Created' | 'Updated' | 'Deactivated' | 'Reactivated';
+
+/**
+ * One recorded edit to a band. A band changes without a deploy and therefore without a commit,
+ * so this is the only record of how a city's price ceiling got where it is.
+ */
+export interface PricingBandChange {
+  id: string;
+  cityPricingConfigId: string;
+  city: string;
+  zone: string | null;
+  vehicleType: VehicleType;
+  kind: PricingBandChangeKind;
+  /** Null on a Created row — there was no band before it. */
+  previousMinPricePerHour: number | null;
+  previousMaxPricePerHour: number | null;
+  previousOverstayMultiplier: number | null;
+  previousIsActive: boolean | null;
+  minPricePerHour: number;
+  maxPricePerHour: number;
+  overstayMultiplier: number;
+  isActive: boolean;
+  changedByUserId: string;
+  reason: string | null;
+  changedAt: string;
+}
+
+export interface SetBandActiveRequest {
+  isActive: boolean;
+  reason: string | null;
 }
 
 /** RFC 7807 problem details, which is what the API returns for every non-2xx. */

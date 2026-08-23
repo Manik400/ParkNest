@@ -32,6 +32,7 @@ public interface IParkNestDbContext
     DbSet<LedgerTransaction> LedgerTransactions { get; }
     DbSet<LedgerEntry> LedgerEntries { get; }
     DbSet<CityPricingConfig> CityPricingConfigs { get; }
+    DbSet<PricingBandChange> PricingBandChanges { get; }
     DbSet<Payout> Payouts { get; }
     DbSet<PaymentOrder> PaymentOrders { get; }
     DbSet<Dispute> Disputes { get; }
