@@ -59,13 +59,20 @@ public sealed class ListingService : IListingService
     private readonly IPricingService _pricing;
     private readonly IClock _clock;
     private readonly ICurrentUser _currentUser;
+    private readonly ISpaceSearchCacheInvalidator _searchCache;
 
-    public ListingService(IParkNestDbContext db, IPricingService pricing, IClock clock, ICurrentUser currentUser)
+    public ListingService(
+        IParkNestDbContext db,
+        IPricingService pricing,
+        IClock clock,
+        ICurrentUser currentUser,
+        ISpaceSearchCacheInvalidator searchCache)
     {
         _db = db;
         _pricing = pricing;
         _clock = clock;
         _currentUser = currentUser;
+        _searchCache = searchCache;
     }
 
     public async Task<ParkingSpace> CreateDraftAsync(CreateListingRequest request, CancellationToken cancellationToken = default)
@@ -147,6 +154,12 @@ public sealed class ListingService : IListingService
         space.Status = SpaceStatus.Published;
         await _db.SaveChangesAsync(cancellationToken);
 
+        // A space that has just appeared is invisible to any renter holding a cached search of
+        // that area until this runs. After the commit, not before: invalidating first would let a
+        // search in the gap re-cache the old answer, and a failed save would have retired the
+        // cache for nothing.
+        await _searchCache.InvalidateAsync(cancellationToken);
+
         return space;
     }
 
@@ -160,6 +173,10 @@ public sealed class ListingService : IListingService
         var space = await LoadAsync(spaceId, cancellationToken);
         space.Status = status;
         await _db.SaveChangesAsync(cancellationToken);
+
+        // The unpublish direction matters more than the publish one. A renter sent to a space the
+        // host has withdrawn arrives at a locked gate, which is worse than not finding it at all.
+        await _searchCache.InvalidateAsync(cancellationToken);
 
         return space;
     }

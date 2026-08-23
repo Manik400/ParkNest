@@ -12,6 +12,7 @@ using ParkNest.Application.Options;
 using ParkNest.Application.Payments;
 using ParkNest.Infrastructure.Auth;
 using ParkNest.Infrastructure.Bookings;
+using ParkNest.Infrastructure.Caching;
 using ParkNest.Infrastructure.Messaging;
 using ParkNest.Infrastructure.Notifications;
 using ParkNest.Infrastructure.Payments;
@@ -35,6 +36,7 @@ public static class DependencyInjection
         services.Configure<MessagingOptions>(configuration.GetSection(MessagingOptions.SectionName));
         services.Configure<PushOptions>(configuration.GetSection(PushOptions.SectionName));
         services.Configure<KycOptions>(configuration.GetSection(KycOptions.SectionName));
+        services.Configure<CacheOptions>(configuration.GetSection(CacheOptions.SectionName));
 
         ValidateAuthOptions(configuration, environment);
         ValidateKycOptions(configuration, environment);
@@ -44,7 +46,7 @@ public static class DependencyInjection
 
         services.AddDbContext<ParkNestDbContext>(options => options.UseNpgsql(connectionString));
         services.AddScoped<IParkNestDbContext>(sp => sp.GetRequiredService<ParkNestDbContext>());
-        services.AddScoped<ISpaceSearchService, PostgresSpaceSearchService>();
+        AddSpaceSearch(services, configuration);
 
         // Reports at startup if the database cannot hold the text this application handles.
         // Found the hard way: a Windows-default database landed on WIN1252, which has no rupee
@@ -154,6 +156,55 @@ public static class DependencyInjection
     /// broker between them buys nothing until they are not. Requiring RabbitMQ to run the app
     /// would mean installing a broker to see a booking confirmation.
     /// </summary>
+    /// <summary>
+    /// Geo-search, with a cache in front of it only when one is configured (PRD §15, Phase 2).
+    ///
+    /// The decorator is left out of the chain entirely when caching is off rather than registered
+    /// and told to stand aside. A disabled cache still sitting in the call path is a class that
+    /// nothing exercises until the day somebody switches it on in production.
+    /// </summary>
+    private static void AddSpaceSearch(IServiceCollection services, IConfiguration configuration)
+    {
+        var cache = configuration.GetSection(CacheOptions.SectionName).Get<CacheOptions>() ?? new CacheOptions();
+
+        if (!cache.IsEnabled)
+        {
+            services.AddSingleton<ISearchCache, DisabledSearchCache>();
+            services.AddSingleton<ISpaceSearchCacheInvalidator, NoOpSpaceSearchCacheInvalidator>();
+            services.AddScoped<ISpaceSearchService, PostgresSpaceSearchService>();
+            return;
+        }
+
+        if (cache.IsRedis)
+        {
+            // Singleton because the multiplexer is one long-lived connection that multiplexes
+            // every caller; StackExchange.Redis is explicit that creating them per request is the
+            // way to exhaust a connection pool.
+            services.AddSingleton<ISearchCache, RedisSearchCache>();
+        }
+        else
+        {
+            services.AddMemoryCache(options => options.SizeLimit = cache.MemoryEntryLimit);
+            services.AddSingleton<ISearchCache, MemorySearchCache>();
+        }
+
+        // The query itself, still resolvable on its own — the integration suite asks for the
+        // concrete type so it exercises the real SQL rather than whatever a cache remembered.
+        services.AddScoped<PostgresSpaceSearchService>();
+
+        services.AddScoped<CachingSpaceSearchService>(sp => new CachingSpaceSearchService(
+            sp.GetRequiredService<PostgresSpaceSearchService>(),
+            sp.GetRequiredService<ISearchCache>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<IOptions<CacheOptions>>(),
+            sp.GetRequiredService<ILogger<CachingSpaceSearchService>>()));
+
+        // Both interfaces resolve to the one instance. Two would mean the invalidator bumping a
+        // generation that the searcher is not reading.
+        services.AddScoped<ISpaceSearchService>(sp => sp.GetRequiredService<CachingSpaceSearchService>());
+        services.AddScoped<ISpaceSearchCacheInvalidator>(sp => sp.GetRequiredService<CachingSpaceSearchService>());
+    }
+
     private static void AddMessaging(IServiceCollection services, IConfiguration configuration)
     {
         var messaging = configuration.GetSection(MessagingOptions.SectionName).Get<MessagingOptions>()

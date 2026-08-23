@@ -65,7 +65,10 @@ public sealed class TestHarness : IDisposable
         Ledger = new LedgerService(Db, Clock);
         Wallets = new WalletService(Db, Ledger, Clock, wrapped);
         PricingService = new PricingService(Db, wrapped);
-        Listings = new ListingService(Db, PricingService, Clock, CurrentUser);
+        // The no-op invalidator, because the unit suite runs with caching off. What the decorator
+        // itself does is covered separately in SpaceSearchCacheTests, against a real cache.
+        Listings = new ListingService(
+            Db, PricingService, Clock, CurrentUser, new NoOpSpaceSearchCacheInvalidator());
         Events = new RecordingEventBus();
         Bookings = new BookingService(Db, Wallets, PricingService, Clock, CurrentUser, wrapped, Events);
 
