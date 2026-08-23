@@ -5,6 +5,16 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// Applied only when the file is there. The Google Services plugin fails the build outright if it
+// is applied without google-services.json, and this repository ships without one — a Firebase
+// project is an account somebody has to create, not something a clone can carry. Drop the file in
+// and push starts working on the next build; leave it out and everything else still runs.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+} else {
+    logger.lifecycle("ParkNest: no android/app/google-services.json - building without push.")
+}
+
 android {
     namespace = "com.parknest.parknest_mobile"
     compileSdk = flutter.compileSdkVersion

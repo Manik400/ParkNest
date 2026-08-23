@@ -12,6 +12,13 @@ class Api {
   final ApiClient client;
   final Session session;
 
+  /// Run before the session is cleared, while the tokens are still valid.
+  ///
+  /// Exists for one caller: unregistering this handset from push. That call is authorised, so it
+  /// has to happen before [Session.clear], and a callback keeps Api from depending on PushService
+  /// — which depends on Api.
+  Future<void> Function()? beforeSignOut;
+
   List<T> _list<T>(dynamic data, T Function(Map<String, dynamic>) parse) =>
       (data as List<dynamic>).map((e) => parse(e as Map<String, dynamic>)).toList();
 
@@ -35,6 +42,8 @@ class Api {
   /// Ends the session on the server, not just on the handset. A refresh token that outlives the
   /// sign-out is exactly the thing refresh tokens were added to make revocable.
   Future<void> signOut() async {
+    await beforeSignOut?.call();
+
     final refreshToken = session.refreshToken;
 
     if (refreshToken != null) {
@@ -308,6 +317,18 @@ class Api {
 
   Future<void> markAllNotificationsRead() =>
       client.post('/api/notifications/me/read-all', body: {});
+
+  // --- Devices ------------------------------------------------------------
+
+  /// Points this install at the signed-in account. Called on every launch, because the platform
+  /// rotates registration tokens on its own schedule.
+  Future<void> registerDevice(String token, String platform) =>
+      client.post('/api/devices', body: {'token': token, 'platform': platform});
+
+  /// Called on sign-out, while the session is still valid. A handset left registered keeps
+  /// receiving the previous account's bookings.
+  Future<void> unregisterDevice(String token) =>
+      client.post('/api/devices/unregister', body: {'token': token});
 }
 
 /// What a Tier 2 check-in offers as evidence: the code from the sticker, and where the phone was

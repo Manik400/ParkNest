@@ -92,18 +92,27 @@ class _NotificationsBellState extends State<NotificationsBell> {
 
   int _unread = 0;
   Timer? _timer;
+  StreamSubscription<void>? _pushed;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
     _timer ??= Timer.periodic(_interval, (_) => _refresh());
+
+    // A push that lands while the app is open draws nothing by itself, and waiting up to a minute
+    // for the poll to notice would make the badge feel broken on the one occasion the user is
+    // watching. The push is the hint; the count still comes from the server, which is the only
+    // thing that knows what has already been read on another device.
+    _pushed ??= Services.pushOf(context).onMessage.listen((_) => _refresh());
+
     _refresh();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _pushed?.cancel();
     super.dispose();
   }
 

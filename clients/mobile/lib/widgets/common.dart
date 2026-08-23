@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api.dart';
+import '../core/push.dart';
 import '../theme.dart';
 
 /// Hands [Api] down the tree.
@@ -8,9 +9,15 @@ import '../theme.dart';
 /// An InheritedWidget rather than a DI package: there is exactly one dependency to provide, and
 /// the whole of it is visible on this screen.
 class Services extends InheritedWidget {
-  const Services({required this.api, required super.child, super.key});
+  const Services({
+    required this.api,
+    required this.push,
+    required super.child,
+    super.key,
+  });
 
   final Api api;
+  final PushService push;
 
   static Api of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<Services>();
@@ -18,8 +25,16 @@ class Services extends InheritedWidget {
     return scope!.api;
   }
 
+  /// Separate from [of] because almost nothing needs it — the bell, so its badge can move the
+  /// moment a foreground push lands instead of on the next poll.
+  static PushService pushOf(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<Services>();
+    assert(scope != null, 'No Services found. Wrap the app in a Services widget.');
+    return scope!.push;
+  }
+
   @override
-  bool updateShouldNotify(Services oldWidget) => api != oldWidget.api;
+  bool updateShouldNotify(Services oldWidget) => api != oldWidget.api || push != oldWidget.push;
 }
 
 class StatusChip extends StatelessWidget {

@@ -15,6 +15,7 @@ login; sign in as `parknest` / `parknest` to edit. Prometheus is at <http://loca
 | `prometheus/alerts.yml` | Three rules: ledger drift, shortfall rate, dispute rate. |
 | `alertmanager/alertmanager.yml` | Where a firing rule goes: grouping, repeat intervals, receiver. |
 | `grafana/provisioning/` | Datasource and dashboard providers, so a fresh volume comes up configured. |
+| `on-call.md` | The rota, and what to do when each rule fires. Alertmanager routes; this is who reads it. |
 | `grafana/dashboards/parknest-overview.json` | The dashboard, in the order PRD §17 asks the questions: is the money right, is the marketplace alive, is the API healthy. |
 
 ## The one number that matters
@@ -48,6 +49,10 @@ docker compose logs -f alert-sink
 That is deliberate. A Slack URL nobody has filled in produces a delivery path that fails silently
 at the far end, which is worse than no path at all — this way `docker compose up` gives something
 that demonstrably works, and you can see whether an alert actually left Alertmanager.
+
+Routing it somewhere real, and who is expected to answer, are in [on-call.md](on-call.md). The
+rota there is unfilled: routing a critical alert at nobody is the failure this whole file is
+trying to avoid, one step further along.
 
 To route somewhere real, uncomment the `slack` receiver in `alertmanager/alertmanager.yml`, supply
 the webhook URL, and point the route at it. Critical alerts — ledger drift — go out immediately and

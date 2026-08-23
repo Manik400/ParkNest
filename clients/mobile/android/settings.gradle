@@ -24,6 +24,10 @@ plugins {
     // how the Flutter Gradle plugin configures plugin subprojects, and geolocator — which reads
     // flutter.compileSdkVersion — then fails to configure at all.
     id "org.jetbrains.kotlin.android" version "1.9.22" apply false
+    // Declared, never applied here. app/build.gradle applies it only when google-services.json is
+    // present, so a checkout without a Firebase project still builds and runs — it just does not
+    // push. 4.3.15 rather than the current 4.4.x, which wants a newer AGP than the 7.3.0 above.
+    id "com.google.gms.google-services" version "4.3.15" apply false
 }
 
 include ":app"

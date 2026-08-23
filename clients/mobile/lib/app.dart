@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import 'core/api.dart';
 import 'core/api_client.dart';
+import 'core/push.dart';
 import 'core/session.dart';
 import 'screens/add_listing_screen.dart';
 import 'screens/booking_detail_screen.dart';
@@ -37,6 +38,7 @@ class ParkNestApp extends StatefulWidget {
 class _ParkNestAppState extends State<ParkNestApp> {
   late final ApiClient _client = ApiClient(widget.session);
   late final Api _api = Api(_client, widget.session);
+  late final PushService _push = PushService(_api);
   late final GoRouter _router;
 
   StreamSubscription<void>? _signedOut;
@@ -115,11 +117,29 @@ class _ParkNestAppState extends State<ParkNestApp> {
 
     // The client discovers a dead session mid-request; the router is what has to act on it.
     _signedOut = _client.onSignedOut.listen((_) => _router.go('/sign-in'));
+
+    // Unregistering has to happen while the session is still valid, so it hangs off sign-out
+    // rather than off the session listener below — by the time that fires, the tokens are gone.
+    _api.beforeSignOut = _push.stop;
+
+    // Registration follows the session: on launch when one was restored, and on the transition
+    // when the user signs in. start() is idempotent, so the listener firing for anything else is
+    // harmless.
+    widget.session.addListener(_syncPush);
+    _syncPush();
+  }
+
+  void _syncPush() {
+    if (widget.session.isSignedIn) {
+      unawaited(_push.start());
+    }
   }
 
   @override
   void dispose() {
+    widget.session.removeListener(_syncPush);
     _signedOut?.cancel();
+    _push.dispose();
     _client.dispose();
     super.dispose();
   }
@@ -128,6 +148,7 @@ class _ParkNestAppState extends State<ParkNestApp> {
   Widget build(BuildContext context) {
     return Services(
       api: _api,
+      push: _push,
       child: MaterialApp.router(
         title: 'ParkNest',
         debugShowCheckedModeBanner: false,

@@ -12,6 +12,11 @@
          needs GPS. Searching still runs on the coarse fix. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
 
+    <!-- Push. Runtime-prompted from Android 13; below it the permission is granted at install
+         and this line is inert. PushService asks for it after sign-in rather than at launch, so
+         the prompt arrives attached to an account that has something to notify about. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
     <!-- Scanning the check-in sticker. Optional as a feature so a device with no camera can still
          install the app and check in by tapping. -->
     <uses-permission android:name="android.permission.CAMERA"/>

@@ -38,6 +38,12 @@ dist/
 .flutter-plugins-dependencies
 **/build/
 
+# Firebase project config for the app. Not a secret in the way a private key is — it identifies a
+# project rather than authorising anything — but it is one particular person's Firebase project,
+# and a committed one silently sends everybody's builds to it.
+clients/mobile/android/app/google-services.json
+clients/mobile/ios/Runner/GoogleService-Info.plist
+
 # OS
 .DS_Store
 Thumbs.db
