@@ -112,12 +112,19 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Cancel this booking?'),
         content: Text(
-          terms.isFree
-              ? 'The whole hold, ${formatCredits(terms.refund)}, goes back to your spendable '
-                  'balance.'
-              : 'Cancelling now costs ${formatCredits(terms.fee)} — the host loses a slot they '
-                  'cannot re-let this close to the start. '
-                  '${formatCredits(terms.refund)} comes back to you.',
+          // Three sentences, not two. "Free" and "free because we could not give you the space"
+          // are different facts, and a renter told only the first will read a failed booking as
+          // their own change of mind.
+          terms.slotBlocked
+              ? 'The previous car had not left when your slot came due, so this costs you '
+                  'nothing however late it is. The whole hold, '
+                  '${formatCredits(terms.refund)}, goes back to your spendable balance.'
+              : terms.isFree
+                  ? 'The whole hold, ${formatCredits(terms.refund)}, goes back to your spendable '
+                      'balance.'
+                  : 'Cancelling now costs ${formatCredits(terms.fee)} — the host loses a slot they '
+                      'cannot re-let this close to the start. '
+                      '${formatCredits(terms.refund)} comes back to you.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep it')),
@@ -205,6 +212,38 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         const SizedBox(height: 4),
         Text(summary.spaceAddress, style: TextStyle(color: scheme.onSurfaceVariant)),
         const SizedBox(height: 20),
+
+        // The space was still occupied when this slot came due. Placed above everything else on
+        // the screen because it is the only thing here that changes what the renter should do
+        // next, and the status chip cannot say it — the booking is still, correctly, Held.
+        if (booking.blockedByBookingId != null) ...[
+          Card(
+            color: scheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'The space may still be occupied',
+                    style: TextStyle(
+                      color: scheme.onErrorContainer,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'The previous car had not left when your slot was due to start. '
+                    'Cancelling this booking costs you nothing.',
+                    style: TextStyle(color: scheme.onErrorContainer),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
 
         // A shortfall means the renter left owing credits. It is the most consequential thing that
         // can appear on this screen, so it is stated plainly rather than left to be inferred from

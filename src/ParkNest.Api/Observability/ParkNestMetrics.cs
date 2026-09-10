@@ -64,6 +64,18 @@ public static class ParkNestMetrics
     public static readonly Counter DisputesRaised = Metrics.CreateCounter(
         "parknest_disputes_raised_total",
         "Disputes opened against a booking.");
+
+    /// <summary>
+    /// Bookings that could not be delivered because the previous car was still there.
+    ///
+    /// Worth watching separately from overstays: an overstay costs the renter money and the system
+    /// handles it, while this one costs a second renter a wasted journey and the platform a refund
+    /// it cannot recover. A rising ratio of these to overstays says the grace period or the gap
+    /// between bookable slots is wrong.
+    /// </summary>
+    public static readonly Counter SlotsBlocked = Metrics.CreateCounter(
+        "parknest_blocked_slots_total",
+        "Bookings whose slot was still occupied by an over-running session when it came due.");
 }
 
 /// <summary>
@@ -78,6 +90,7 @@ public sealed class MetricsEventHandlers :
     IEventHandler<SessionEnded>,
     IEventHandler<BookingCancelled>,
     IEventHandler<OverstayCharged>,
+    IEventHandler<NextSlotBlocked>,
     IEventHandler<DisputeRaised>
 {
     public Task HandleAsync(BookingCreated @event, CancellationToken cancellationToken = default)
@@ -114,6 +127,12 @@ public sealed class MetricsEventHandlers :
     public Task HandleAsync(OverstayCharged @event, CancellationToken cancellationToken = default)
     {
         ParkNestMetrics.OverstaysCharged.Inc();
+        return Task.CompletedTask;
+    }
+
+    public Task HandleAsync(NextSlotBlocked @event, CancellationToken cancellationToken = default)
+    {
+        ParkNestMetrics.SlotsBlocked.Inc();
         return Task.CompletedTask;
     }
 

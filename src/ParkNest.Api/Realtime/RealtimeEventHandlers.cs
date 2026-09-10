@@ -18,6 +18,7 @@ public sealed class RealtimeEventHandlers :
     IEventHandler<SessionStarted>,
     IEventHandler<SessionEnded>,
     IEventHandler<OverstayCharged>,
+    IEventHandler<NextSlotBlocked>,
     IEventHandler<WalletChanged>,
     IEventHandler<BookingCancelled>
 {
@@ -54,6 +55,18 @@ public sealed class RealtimeEventHandlers :
             overstayMinutes = @event.OverstayMinutes,
             charged = @event.Charged,
             shortfall = @event.Shortfall,
+        }, cancellationToken);
+
+    public Task HandleAsync(NextSlotBlocked @event, CancellationToken cancellationToken = default) =>
+        // All three, and each acts on it differently: the blocked renter should stop driving, the
+        // blocking renter should move, the host should go and look. One payload, because they are
+        // all being told the same fact about the same space.
+        SendAsync(new[] { @event.BlockedRenterId, @event.BlockingRenterId, @event.HostId }, "slotBlocked", new
+        {
+            blockedBookingId = @event.BlockedBookingId,
+            blockingBookingId = @event.BlockingBookingId,
+            parkingSpaceId = @event.ParkingSpaceId,
+            blockedStartTime = @event.BlockedStartTime,
         }, cancellationToken);
 
     public Task HandleAsync(WalletChanged @event, CancellationToken cancellationToken = default) =>

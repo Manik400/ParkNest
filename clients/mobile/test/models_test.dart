@@ -383,4 +383,64 @@ void main() {
       expect(photo.sortOrder, 0);
     });
   });
+
+  group('a blocked slot', () {
+    test('a booking summary carries whether the space was still occupied', () {
+      final booking = BookingSummary.fromJson({
+        'id': '11111111-1111-1111-1111-111111111111',
+        'parkingSpaceId': '22222222-2222-2222-2222-222222222222',
+        'spaceTitle': 'Driveway',
+        'spaceAddress': '12 Main Rd',
+        'startTime': '2026-08-24T10:00:00+00:00',
+        'expectedEndTime': '2026-08-24T11:00:00+00:00',
+        'actualEndTime': null,
+        'ratePerHour': 60,
+        'holdAmount': 60,
+        'settledAmount': 0,
+        'status': 'Held',
+        'slotBlocked': true,
+      });
+
+      // Still Held, and that is correct — the interesting fact is the other one.
+      expect(booking.status, 'Held');
+      expect(booking.slotBlocked, isTrue);
+    });
+
+    test('an API that does not send the field yet reads as not blocked', () {
+      final booking = BookingSummary.fromJson({
+        'id': '11111111-1111-1111-1111-111111111111',
+        'parkingSpaceId': '22222222-2222-2222-2222-222222222222',
+        'spaceTitle': 'Driveway',
+        'spaceAddress': '12 Main Rd',
+        'startTime': '2026-08-24T10:00:00+00:00',
+        'expectedEndTime': '2026-08-24T11:00:00+00:00',
+        'actualEndTime': null,
+        'ratePerHour': 60,
+        'holdAmount': 60,
+        'settledAmount': 0,
+        'status': 'Held',
+      });
+
+      // An app pointed at an older API must show a booking list, not an error screen.
+      expect(booking.slotBlocked, isFalse);
+    });
+
+    test('cancellation terms say free and say why separately', () {
+      final terms = CancellationTerms.fromJson({
+        'holdAmount': 60,
+        'fee': 0,
+        'refund': 60,
+        'isFree': true,
+        'freeUntil': '2026-08-24T09:00:00+00:00',
+        'slotBlocked': true,
+      });
+
+      // Free is not the message. Free *because the space was occupied* is, and it is true here
+      // even though the free window closed an hour before.
+      expect(terms.isFree, isTrue);
+      expect(terms.slotBlocked, isTrue);
+      expect(terms.refund, 60);
+      expect(terms.freeUntil.isBefore(DateTime.parse('2026-08-24T10:00:00Z')), isTrue);
+    });
+  });
 }

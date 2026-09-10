@@ -82,6 +82,18 @@ public sealed class PlatformOptions
     /// </summary>
     public int CheckInRadiusMetres { get; set; } = 150;
 
+    /// <summary>
+    /// How far ahead of a booking's start an over-running session counts as blocking it.
+    ///
+    /// It exists because the useful moment to tell someone is before they arrive, not once they
+    /// are circling. Fifteen minutes is roughly the drive that is already under way.
+    ///
+    /// Deliberately independent of <see cref="OverstayGraceMinutes"/>: grace decides when a charge
+    /// lands and is a courtesy to the renter who is late, and it has nothing to say about whether
+    /// somebody else's slot is occupied. Zero disables the check.
+    /// </summary>
+    public int BlockedSlotLookaheadMinutes { get; set; } = 15;
+
     /// <summary>Ceiling on the city-configured overstay multiplier, so hosts can't gouge a stuck renter.</summary>
     public decimal MaxOverstayMultiplier { get; set; } = 2.0m;
 }

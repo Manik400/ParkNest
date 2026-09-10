@@ -174,6 +174,28 @@ class _BookingCard extends StatelessWidget {
                     ),
                   ],
                 ),
+                // The chip still says Held, which is true and is not the useful part. Whether the
+                // bay has somebody else's car in it is what decides whether to set off.
+                if (booking.slotBlocked) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.error_outline, size: 16, color: scheme.error),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Space was still occupied — cancelling is free',
+                          style: TextStyle(
+                            color: scheme.error,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+
                 if (booking.status == 'Active') ...[
                   const SizedBox(height: 8),
                   Text(

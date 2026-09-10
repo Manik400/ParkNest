@@ -395,7 +395,15 @@ public sealed class BookingService : IBookingService
     private CancellationTerms TermsFor(Booking booking, DateTimeOffset now)
     {
         var freeUntil = booking.StartTime.AddMinutes(-_options.FreeCancellationMinutes);
-        var isFree = now < freeUntil || _options.LateCancellationFeeRate <= 0m;
+
+        // A slot the previous car is still sitting in cannot carry a late-cancellation fee. The
+        // fee compensates a host for notice too short to re-let the slot, and there is no slot to
+        // re-let — the renter is not changing their mind, they are being turned away. Charging
+        // here would bill somebody for our failure to deliver, which is the one outcome that makes
+        // the whole late-cancellation policy look like a trap.
+        var isFree = booking.WasBlocked
+                     || now < freeUntil
+                     || _options.LateCancellationFeeRate <= 0m;
 
         var fee = isFree
             ? 0m
@@ -406,7 +414,8 @@ public sealed class BookingService : IBookingService
             fee,
             Money.Round(booking.HoldAmount - fee),
             isFree,
-            freeUntil);
+            freeUntil,
+            booking.WasBlocked);
     }
 
     /// <summary>

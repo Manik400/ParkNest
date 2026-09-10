@@ -163,6 +163,7 @@ builder.Services.AddScoped<RealtimeEventHandlers>();
 builder.Services.AddScoped<IEventHandler<SessionStarted>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
 builder.Services.AddScoped<IEventHandler<SessionEnded>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
 builder.Services.AddScoped<IEventHandler<OverstayCharged>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<NextSlotBlocked>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
 builder.Services.AddScoped<IEventHandler<WalletChanged>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
 builder.Services.AddScoped<IEventHandler<BookingCancelled>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
 
@@ -174,6 +175,7 @@ builder.Services.AddScoped<IEventHandler<BookingCreated>>(sp => sp.GetRequiredSe
 builder.Services.AddScoped<IEventHandler<SessionEnded>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
 builder.Services.AddScoped<IEventHandler<BookingCancelled>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
 builder.Services.AddScoped<IEventHandler<OverstayCharged>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<NextSlotBlocked>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
 builder.Services.AddScoped<IEventHandler<DisputeRaised>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
 
 // Watches the one invariant the whole credit model rests on: that stored balances still equal the

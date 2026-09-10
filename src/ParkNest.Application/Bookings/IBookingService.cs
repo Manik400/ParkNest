@@ -50,12 +50,20 @@ public interface IBookingService
 public sealed record CheckInProof(string Token, double Latitude, double Longitude);
 
 /// <param name="FreeUntil">After this moment a cancellation starts costing something.</param>
+/// <param name="SlotBlocked">
+/// The previous car had not left when this slot came due, so it is free whatever the notice. The
+/// client needs it separately from <paramref name="IsFree"/> to say <em>why</em> — "free because
+/// we could not give you the space" and "free because you are early" are different sentences, and
+/// a renter who reads the second when the first is true will assume they got lucky rather than
+/// that something went wrong.
+/// </param>
 public sealed record CancellationTerms(
     decimal HoldAmount,
     decimal Fee,
     decimal Refund,
     bool IsFree,
-    DateTimeOffset FreeUntil);
+    DateTimeOffset FreeUntil,
+    bool SlotBlocked = false);
 
 public sealed record CancellationOutcome(Booking Booking, decimal Fee, decimal Refund);
 

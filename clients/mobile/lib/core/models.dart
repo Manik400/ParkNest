@@ -227,6 +227,7 @@ class BookingSummary {
     required this.holdAmount,
     required this.settledAmount,
     required this.status,
+    required this.slotBlocked,
     this.actualEndTime,
   });
 
@@ -242,6 +243,9 @@ class BookingSummary {
         holdAmount: _money(json['holdAmount']),
         settledAmount: _money(json['settledAmount']),
         status: json['status'] as String,
+        // Defaulted rather than required so an app build newer than the API it is pointed at
+        // degrades to "not blocked" instead of failing to parse the booking list entirely.
+        slotBlocked: json['slotBlocked'] as bool? ?? false,
       );
 
   final String id;
@@ -255,6 +259,9 @@ class BookingSummary {
   final double holdAmount;
   final double settledAmount;
   final String status;
+
+  /// The previous car had not left when this slot came due. Cancelling it is free.
+  final bool slotBlocked;
 
   bool get isOpen => status == 'Held' || status == 'Active';
 }
@@ -275,6 +282,8 @@ class BookingDetail {
     this.billedMinutes,
     this.startDetectionMethod,
     this.endDetectionMethod,
+    this.blockedByBookingId,
+    this.blockedAt,
   });
 
   factory BookingDetail.fromJson(Map<String, dynamic> json) => BookingDetail(
@@ -291,6 +300,8 @@ class BookingDetail {
         shortfallAmount: _money(json['shortfallAmount']),
         startDetectionMethod: json['startDetectionMethod'] as String?,
         endDetectionMethod: json['endDetectionMethod'] as String?,
+        blockedByBookingId: json['blockedByBookingId'] as String?,
+        blockedAt: _dateOrNull(json['blockedAt']),
         ledgerEntries: (json['ledgerEntries'] as List<dynamic>)
             .map((e) => LedgerEntrySummary.fromJson(e as Map<String, dynamic>))
             .toList(),
@@ -312,6 +323,12 @@ class BookingDetail {
 
   final String? startDetectionMethod;
   final String? endDetectionMethod;
+
+  /// The over-running session that was still in the space when this slot came due, if there was
+  /// one. Its presence is what makes cancelling free.
+  final String? blockedByBookingId;
+  final DateTime? blockedAt;
+
   final List<LedgerEntrySummary> ledgerEntries;
 }
 
@@ -606,6 +623,7 @@ class CancellationTerms {
     required this.refund,
     required this.isFree,
     required this.freeUntil,
+    required this.slotBlocked,
   });
 
   factory CancellationTerms.fromJson(Map<String, dynamic> json) => CancellationTerms(
@@ -614,6 +632,7 @@ class CancellationTerms {
         refund: _money(json['refund']),
         isFree: json['isFree'] as bool,
         freeUntil: _date(json['freeUntil']),
+        slotBlocked: json['slotBlocked'] as bool? ?? false,
       );
 
   final double holdAmount;
@@ -623,6 +642,11 @@ class CancellationTerms {
 
   /// After this moment cancelling starts costing something.
   final DateTime freeUntil;
+
+  /// Free because the space was still occupied, not because there is time in hand. The renter
+  /// needs the difference: one is good timing, the other is the platform failing to deliver the
+  /// thing they paid for, and the sentence that goes on the button is not the same.
+  final bool slotBlocked;
 }
 
 /// One stored notification. The socket and the push are how a message arrives quickly; this row

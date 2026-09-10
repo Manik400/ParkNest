@@ -1,4 +1,4 @@
-# The two conditions worth waking someone for, and one worth reading in the morning.
+# The condition worth waking someone for, and three worth reading in the morning.
 #
 # Deliberately few. An alert nobody acts on trains people to ignore the ones that matter, and
 # everything else on the dashboard is a question rather than an answer.
@@ -34,6 +34,25 @@ groups:
             The prepaid model rests on credits being reserved before the car arrives. A sustained
             violation rate means holds are too small, or the meter is not billing over-runs early
             enough.
+
+      # A booking the platform could not deliver: the previous car was still in the bay when this
+      # renter's slot came due. Distinct from an overstay, which the credit system handles by
+      # itself — this one ends with a renter turned away and a refund that comes out of nobody's
+      # pocket but ours. Rare enough that a rate above 1% of bookings means the gap between
+      # bookable slots is too tight, or the overstay charge is not deterring anybody.
+      - alert: BlockedSlotRateElevated
+        expr: >-
+          sum(rate(parknest_blocked_slots_total[6h]))
+          / clamp_min(sum(rate(parknest_bookings_created_total[6h])), 0.001) > 0.01
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 1% of bookings are finding the space still occupied"
+          description: >-
+            Over-running sessions are reaching the next renter. Each one is a booking that could
+            not be delivered and a hold refunded in full. Look at whether one space or one host
+            accounts for most of them before changing the grace period platform-wide.
 
       # Not urgent, but a rising dispute rate is how a detection tier tells you it is not good
       # enough — that is exactly why PRD §17 asks for it.

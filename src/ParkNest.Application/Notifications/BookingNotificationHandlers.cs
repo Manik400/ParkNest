@@ -19,6 +19,7 @@ public sealed class BookingNotificationHandlers :
     IEventHandler<SessionEnded>,
     IEventHandler<BookingCancelled>,
     IEventHandler<OverstayCharged>,
+    IEventHandler<NextSlotBlocked>,
     IEventHandler<DisputeResolved>,
     IEventHandler<KycReviewed>
 {
@@ -126,6 +127,46 @@ public sealed class BookingNotificationHandlers :
 
         _logger.LogInformation("Told renter {RenterId} about an overstay on {BookingId}.",
             @event.RenterId, @event.BookingId);
+    }
+
+    public async Task HandleAsync(NextSlotBlocked @event, CancellationToken cancellationToken = default)
+    {
+        // The renter on their way is told first and told what they may do about it, because they
+        // are the only one of the three about to waste a journey. The offer of a free cancellation
+        // is stated here rather than left for them to discover at the confirmation screen — a
+        // renter who believes cancelling will cost them half the hold will drive there anyway.
+        await _notifications.CreateAsync(new CreateNotification(
+            @event.BlockedRenterId,
+            "slot.blocked",
+            "Your space may still be occupied",
+            $"The previous car had not left when your slot was due to start at {Local(@event.BlockedStartTime)}. "
+            + "Cancelling this booking costs you nothing.",
+            @event.BlockedBookingId), cancellationToken);
+
+        // The car that is in the way. This is a different message from the overstay charge, which
+        // says what it cost: this one says somebody is waiting, which is the part that actually
+        // moves a car.
+        await _notifications.CreateAsync(new CreateNotification(
+            @event.BlockingRenterId,
+            "slot.blocking",
+            "Someone is waiting for this space",
+            $"The next booking on this space begins at {Local(@event.BlockedStartTime)}. "
+            + "Please move now — you are still being billed, and the other driver is turned away.",
+            @event.BlockingBookingId), cancellationToken);
+
+        // The host is the only party who can physically go and look, and it is their space's
+        // reputation that pays for it.
+        await _notifications.CreateAsync(new CreateNotification(
+            @event.HostId,
+            "slot.blocked",
+            "Your space is double-occupied",
+            $"A session over-ran into the booking due at {Local(@event.BlockedStartTime)}. "
+            + "That renter can cancel free of charge.",
+            @event.BlockedBookingId), cancellationToken);
+
+        _logger.LogWarning(
+            "Booking {BlockedBookingId} is blocked by {BlockingBookingId}; all three parties told.",
+            @event.BlockedBookingId, @event.BlockingBookingId);
     }
 
     public async Task HandleAsync(DisputeResolved @event, CancellationToken cancellationToken = default)

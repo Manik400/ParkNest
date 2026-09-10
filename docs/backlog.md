@@ -211,12 +211,22 @@ Phases follow PRD §18. Items are ordered within each phase.
 
 ## Open questions
 
-- **Overstay when the next booking is already due.** Nothing prevents a renter overstaying into
-  another renter's booked slot. The credit system bills them, but the second renter still has
-  nowhere to park. Needs a product decision — refund and re-house, or let the second renter take
-  the loss and compensate them — before it is worth writing.
+- **Compensating a renter whose slot was blocked, beyond the refund.** The detection, the warnings
+  and the free cancellation are built (see *Decided, and configurable* below). What is still open
+  is whether the turned-away renter gets anything on top of their hold back, and who funds it —
+  the over-running renter's overstay charges, the host, or the platform. Each answer has a
+  different ledger shape, and none of them is obviously right, which is why the half that is right
+  under all three shipped without it.
 
 ## Decided, and configurable
+
+- **A slot the previous car is still sitting in.** The overstay meter now looks, on every sweep,
+  for a booking on the same space due to start within `Platform:BlockedSlotLookaheadMinutes`. When
+  it finds one it flags that booking once, tells all three parties — move the car, stop driving,
+  go and look — and the flag makes cancelling free whatever the notice. Detection runs outside the
+  overstay grace period on purpose: grace decides when a *charge* lands and has nothing to say
+  about whose slot is occupied. The flag is never cleared, because withdrawing a free cancellation
+  from somebody who has already been told they have one is worse than never offering it.
 
 - **Cancellation policy.** Free up to `Platform:FreeCancellationMinutes` before the booked start;
   inside that window the renter forfeits `Platform:LateCancellationFeeRate` of the hold, which

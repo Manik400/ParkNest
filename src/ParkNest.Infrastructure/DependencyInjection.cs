@@ -88,10 +88,24 @@ public static class DependencyInjection
     {
         var sms = configuration.GetSection(SmsOptions.SectionName).Get<SmsOptions>() ?? new SmsOptions();
 
-        if (sms.IsConfigured)
+        if (sms.IsMsg91Configured)
         {
             services.AddHttpClient<IOtpSender, Msg91OtpSender>();
             return;
+        }
+
+        if (sms.IsGatewayConfigured)
+        {
+            services.AddHttpClient<IOtpSender, SmsGatewayOtpSender>();
+            return;
+        }
+
+        // A provider named but left half-configured is a typo, not a choice to fall back — saying
+        // so beats silently printing codes to the console because a password was missing.
+        if (sms.IsGateway)
+        {
+            throw new InvalidOperationException(
+                "Sms:Provider=Gateway needs BaseUrl, Username and Password. Leave Provider unset to use the development sender.");
         }
 
         if (environment.IsProduction())

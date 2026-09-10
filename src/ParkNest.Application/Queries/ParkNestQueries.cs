@@ -82,7 +82,8 @@ public sealed class ParkNestQueries : IParkNestQueries
             booking.RatePerHour,
             booking.HoldAmount,
             booking.SettledAmount,
-            booking.Status.ToString());
+            booking.Status.ToString(),
+            booking.WasBlocked);
 
         return new BookingDetail(
             summary,
@@ -98,6 +99,8 @@ public sealed class ParkNestQueries : IParkNestQueries
             booking.ShortfallAmount,
             booking.StartDetectionMethod?.ToString(),
             booking.EndDetectionMethod?.ToString(),
+            booking.BlockedByBookingId,
+            booking.BlockedAt,
             entries);
     }
 
@@ -224,7 +227,8 @@ public sealed class ParkNestQueries : IParkNestQueries
                 b.RatePerHour,
                 b.HoldAmount,
                 b.SettledAmount,
-                b.Status.ToString()))
+                b.Status.ToString(),
+                b.BlockedByBookingId != null))
             .ToListAsync(cancellationToken);
     }
 }

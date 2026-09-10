@@ -32,6 +32,7 @@ public sealed class RabbitMqConsumerService : BackgroundService
         [SessionEnded.EventName] = typeof(SessionEnded),
         [BookingCancelled.EventName] = typeof(BookingCancelled),
         [OverstayCharged.EventName] = typeof(OverstayCharged),
+        [NextSlotBlocked.EventName] = typeof(NextSlotBlocked),
         [WalletChanged.EventName] = typeof(WalletChanged),
         [DisputeRaised.EventName] = typeof(DisputeRaised),
         [DisputeResolved.EventName] = typeof(DisputeResolved),

@@ -65,11 +65,15 @@ public sealed class OverstayMeter : IOverstayMeter
         // minutes late from getting a debit notification while they are walking to the car.
         var cutoff = now.AddMinutes(-_options.OverstayGraceMinutes);
 
+        // Every session past its booked end, not just those past grace. Grace decides when a
+        // *charge* lands; whether somebody else's slot is occupied is a different question and
+        // asking it late is how the second renter finds out by arriving.
         var running = await _db.Bookings
-            .Where(b => b.Status == BookingStatus.Active && b.ExpectedEndTime < cutoff)
+            .Where(b => b.Status == BookingStatus.Active && b.ExpectedEndTime < now)
             .ToListAsync(cancellationToken);
 
         var billed = 0;
+        var changed = false;
 
         foreach (var booking in running)
         {
@@ -77,9 +81,12 @@ public sealed class OverstayMeter : IOverstayMeter
             // wallet that cannot be debited is exactly the case this loop exists to record.
             try
             {
-                if (await MeterAsync(booking, now, cancellationToken))
+                changed |= await FlagBlockedSlotAsync(booking, now, cancellationToken);
+
+                if (booking.ExpectedEndTime < cutoff && await MeterAsync(booking, now, cancellationToken))
                 {
                     billed++;
+                    changed = true;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -88,7 +95,7 @@ public sealed class OverstayMeter : IOverstayMeter
             }
         }
 
-        if (billed > 0)
+        if (changed)
         {
             await _db.SaveChangesAsync(cancellationToken);
         }
@@ -147,6 +154,62 @@ public sealed class OverstayMeter : IOverstayMeter
         // Telling the renter while they can still act is the entire reason the meter runs at all.
         await _events.PublishAsync(new OverstayCharged(
             booking.Id, booking.RenterId, overstayMinutes, debit.Covered, debit.Shortfall),
+            cancellationToken);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Notices that this over-run is sitting in the next renter's slot, and says so once.
+    ///
+    /// The credit system already bills the overstay, and that has never been the problem: the
+    /// second renter is still driving to a bay that has a car in it, and nothing in the system
+    /// told anybody. What is settled here is the half that does not depend on a compensation
+    /// policy — that all three parties learn about it while it can still be acted on, and that the
+    /// blocked renter is marked as owed a free cancellation.
+    ///
+    /// Flagged once and never cleared. Re-checking each tick and unflagging when the car finally
+    /// moves would mean withdrawing a free cancellation from someone who has already been told
+    /// they have one, and it would send the same warning every minute until they did.
+    /// </summary>
+    private async Task<bool> FlagBlockedSlotAsync(Booking overstaying, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (_options.BlockedSlotLookaheadMinutes <= 0)
+        {
+            return false;
+        }
+
+        var horizon = now.AddMinutes(_options.BlockedSlotLookaheadMinutes);
+
+        // The overlap constraint guarantees the next booking starts no earlier than this one was
+        // due to end, so "the earliest one starting within the horizon" is the one being blocked.
+        // Its own window must still have some life in it — a booking whose slot has been and gone
+        // entirely was not blocked so much as missed, and telling that renter to hurry is absurd.
+        var next = await _db.Bookings
+            .Where(b => b.ParkingSpaceId == overstaying.ParkingSpaceId
+                        && b.Id != overstaying.Id
+                        && b.Status == BookingStatus.Held
+                        && b.BlockedByBookingId == null
+                        && b.StartTime <= horizon
+                        && b.ExpectedEndTime > now)
+            .OrderBy(b => b.StartTime)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (next is null)
+        {
+            return false;
+        }
+
+        next.BlockedByBookingId = overstaying.Id;
+        next.BlockedAt = now;
+
+        _logger.LogWarning(
+            "Booking {BlockedBookingId} starting {StartTime} is blocked by over-running session {BlockingBookingId} on space {SpaceId}.",
+            next.Id, next.StartTime, overstaying.Id, next.ParkingSpaceId);
+
+        await _events.PublishAsync(new NextSlotBlocked(
+            next.Id, next.RenterId, overstaying.Id, overstaying.RenterId,
+            next.HostId, next.ParkingSpaceId, next.StartTime),
             cancellationToken);
 
         return true;

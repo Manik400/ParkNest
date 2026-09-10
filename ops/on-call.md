@@ -55,7 +55,7 @@ somebody's money. Every other alert here can be explained by a quiet day; this o
    posted as a compensating entry — never as an edit to an existing one. See
    [docs/ledger-model.md](../docs/ledger-model.md).
 
-### `HighShortfallRate` — warning
+### `ShortfallRateHigh` — warning
 
 Renters are running out of credits mid-session more often than usual. Suppressed while
 `LedgerDrift` is firing, because it is usually the same incident from a second angle.
@@ -64,7 +64,22 @@ Genuine causes worth separating: a pricing band raised too far, the overstay met
 against a wrong rate, or a recharge path failing so balances are not topping up. Check whether
 payment orders are completing before assuming it is behaviour.
 
-### `HighDisputeRate` — warning
+### `BlockedSlotRateElevated` — warning
+
+Over-running sessions are reaching the next renter: their booking could not be delivered, and
+cancelling it is free, so the hold comes back in full and nobody is compensated for the slot.
+
+This is a product signal, not an infrastructure one, and the first question is whether it is
+concentrated. Check the blocked bookings in the console before touching any configuration — one
+host whose own car lives in the space accounts for most of these the first time it fires, and
+widening `Platform:OverstayGraceMinutes` platform-wide to cover for them makes every other
+over-run cheaper.
+
+If it really is general, the levers are the gap between bookable slots and the overstay
+multiplier. Raising `Platform:BlockedSlotLookaheadMinutes` does not fix anything — it only tells
+people earlier, which is worth doing on its own terms.
+
+### `DisputeRateElevated` — info
 
 Disputes opened per settled booking is up. Almost never an infrastructure problem — look for a
 host with a mis-described space, or a check-in flow failing in one city and renters being billed

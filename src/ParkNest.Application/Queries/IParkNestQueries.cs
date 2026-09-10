@@ -41,7 +41,9 @@ public sealed record BookingSummary(
     decimal RatePerHour,
     decimal HoldAmount,
     decimal SettledAmount,
-    string Status);
+    string Status,
+    // The previous car had not left when this slot came due. Cancelling it is free.
+    bool SlotBlocked);
 
 public sealed record BookingDetail(
     BookingSummary Summary,
@@ -57,6 +59,9 @@ public sealed record BookingDetail(
     decimal ShortfallAmount,
     string? StartDetectionMethod,
     string? EndDetectionMethod,
+    // The over-running session that was still in the space, if there was one.
+    Guid? BlockedByBookingId,
+    DateTimeOffset? BlockedAt,
     IReadOnlyList<LedgerEntrySummary> LedgerEntries);
 
 public sealed record ListingSummary(

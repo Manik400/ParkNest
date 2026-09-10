@@ -72,6 +72,8 @@ export interface BookingSummary {
   holdAmount: number;
   settledAmount: number;
   status: BookingStatus;
+  /** The previous car had not left when this slot came due. Cancelling it is free. */
+  slotBlocked: boolean;
 }
 
 export interface BookingDetail {
@@ -88,6 +90,9 @@ export interface BookingDetail {
   shortfallAmount: number;
   startDetectionMethod: string | null;
   endDetectionMethod: string | null;
+  /** The over-running session that was still in the space, if there was one. */
+  blockedByBookingId: string | null;
+  blockedAt: string | null;
   ledgerEntries: LedgerEntrySummary[];
 }
 
@@ -323,6 +328,12 @@ export interface CancellationTerms {
   isFree: boolean;
   /** After this moment cancelling starts costing something. */
   freeUntil: string;
+  /**
+   * Free because the space was still occupied, rather than because there is time in hand. The
+   * distinction is the whole message: "you got lucky" and "we could not give you the space" read
+   * very differently to somebody standing next to somebody else's car.
+   */
+  slotBlocked: boolean;
 }
 
 export type KycStatus = 'NotStarted' | 'Pending' | 'Verified' | 'Rejected';

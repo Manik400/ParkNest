@@ -33,6 +33,7 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.HasIndex(b => new { b.HostId, b.Status });
 
         builder.Ignore(b => b.IsSettled);
+        builder.Ignore(b => b.WasBlocked);
     }
 }
 

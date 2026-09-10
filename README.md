@@ -21,7 +21,7 @@ degrades cleanly without them.
 
 | Area | State |
 |---|---|
-| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 288 tests green |
+| Double-entry ledger (hold / release / overstay / settle / payout) | Implemented, 300 tests green |
 | Pricing rules engine (city bands, billing increments, overstay multiplier) | Implemented |
 | Booking lifecycle + Tier 1 app-confirmed detection | Implemented |
 | Listings + PostGIS geo-search | Implemented |
@@ -35,8 +35,9 @@ degrades cleanly without them.
 | Payouts | Cash-out from the app, gated on KYC and trust score; recording the transfer paid or failed — failure refunds the host |
 | Listing photos | Upload, list, delete, in both clients. Local disk by default, behind a storage interface |
 | Cancellation policy | Free outside a configurable window; inside it the host is compensated |
+| Blocked slots | An over-run into the next renter's slot warns all three parties and makes that booking free to cancel |
 | Angular admin/host console | Login, dashboard, listings, bookings, wallet, recharge, disputes, payouts, pricing bands, identity checks |
-| Background overstay meter | Bills an over-run while it runs, not just at checkout |
+| Background overstay meter | Bills an over-run while it runs, and notices when it reaches the next renter |
 | Tier 2 detection | QR code + geofence, opt-in per space. Host prints the sticker from the app; renters scan it |
 | Ratings and trust score | Both parties rate a finished session; the score gates cash-out |
 | Wallet concurrency | Row-locked, retried, and tested against real contention |
@@ -92,7 +93,7 @@ nothing in the API log to explain it.
 Swagger is at `/swagger` in Development; `/health` is always available.
 
 ```bash
-dotnet test tests/ParkNest.UnitTests  # 288 tests, no Docker required
+dotnet test tests/ParkNest.UnitTests  # 300 tests, no Docker required
 ```
 
 Tests run on in-memory SQLite, so they need no container and finish in about a second.
@@ -168,7 +169,7 @@ refused the screen falls back to "I have parked" — which is a Tier 1 check-in,
 as the renter's word. Hosts get the QR for their own space by tapping it under **Hosting**.
 
 ```bash
-flutter test                         # 33 tests
+flutter test                         # 36 tests
 flutter analyze
 ```
 
@@ -200,6 +201,37 @@ There is no open-source gateway that settles real funds — that needs a license
 sandbox reproduces the *protocol* rather than pretending to be one, and switching to Razorpay
 changes nothing but the edge of the system. See
 [docs/adr/0006-sandbox-payment-gateway.md](docs/adr/0006-sandbox-payment-gateway.md).
+
+## Sending the OTP
+
+Three providers, and the choice is really about who owns the last hop to the handset.
+
+```jsonc
+// src/ParkNest.Api/appsettings.json
+"Sms": { "Provider": "Log" }        // prints the code; Development only, Production refuses to start
+"Sms": { "Provider": "Gateway", "BaseUrl": "http://192.168.1.20:8080",
+         "Username": "...", "Password": "..." }   // a handset you own, with its own SIM
+"Sms": { "Provider": "Msg91", "AuthKey": "...", "TemplateId": "..." }   // a DLT-registered aggregator
+```
+
+`Gateway` is the free one. It posts to [SMS Gateway for Android](https://github.com/capcom6/android-sms-gateway)
+(AGPL-3.0) running on a spare Android phone — the phone sends the message off its own SIM, over
+its own allowance, and nobody is billed per message. Any endpoint with the same shape works, a
+GSM modem behind Gammu included, because the contract is one `POST /message` and two fields.
+
+It is worth being exact about what that does and does not solve. **There is no free software
+package that delivers SMS.** Delivery is a licensed telecom function; every "SMS library" on
+npm or NuGet is an HTTP client for somebody's paid account. Owning the last hop is the only way
+around that, and it buys you development and a pilot, not production:
+
+- one consumer SIM sends a few hundred messages a day before its carrier treats it as spam;
+- Indian regulation puts commercial transactional SMS on DLT-registered headers, which a personal
+  SIM does not have and cannot get;
+- the gateway is a phone on a desk, so a flat battery is an outage. `SmsGatewayOtpSender` treats
+  that as an expected failure and surfaces "try again shortly" rather than a 500.
+
+So `Gateway` is what you develop and pilot against, and `Msg91` is what you launch on. Both
+implement the same `IOtpSender`, so the switch is a config change and nothing else moves.
 
 ## Configuration
 

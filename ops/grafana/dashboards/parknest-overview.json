@@ -1,7 +1,7 @@
 {
   "uid": "parknest-overview",
-  "title": "ParkNest \u2014 money, marketplace, API",
-  "description": "The three questions PRD \u00a717 asks, in the order they matter: is the money right, is the marketplace alive, is the API healthy. Every panel reads a metric the API already exposes at /metrics \u2014 nothing here is computed in Grafana that could be wrong in a different way from the ledger.",
+  "title": "ParkNest — money, marketplace, API",
+  "description": "The three questions PRD §17 asks, in the order they matter: is the money right, is the marketplace alive, is the API healthy. Every panel reads a metric the API already exposes at /metrics — nothing here is computed in Grafana that could be wrong in a different way from the ledger.",
   "tags": [
     "parknest"
   ],
@@ -142,7 +142,7 @@
     {
       "type": "stat",
       "title": "Uncovered credits (24h)",
-      "description": "Credits a renter owed at settlement and could not cover. The prepaid model exists to keep this near zero \u2014 a rise means holds are too small or over-runs are being billed too late.",
+      "description": "Credits a renter owed at settlement and could not cover. The prepaid model exists to keep this near zero — a rise means holds are too small or over-runs are being billed too late.",
       "datasource": {
         "type": "prometheus",
         "uid": "parknest-prometheus"
@@ -445,8 +445,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Over-runs and disputes",
-      "description": "Overstay debits are taken by the meter while a session is still running. Disputes are the signal that the detection tier is not convincing anyone \u2014 PRD \u00a717 tracks the rate for exactly that reason.",
+      "title": "Over-runs, blocked slots and disputes",
+      "description": "Overstay debits are taken by the meter while a session is still running. A blocked slot is the over-run that reached a second renter — their booking could not be delivered, and unlike an overstay it costs the platform a refund it cannot recover. Watch the ratio of the two rather than either alone: if it climbs, the gap between bookable slots is too tight. Disputes are the signal that the detection tier is not convincing anyone — PRD §17 tracks the rate for exactly that reason.",
       "datasource": {
         "type": "prometheus",
         "uid": "parknest-prometheus"
@@ -466,6 +466,15 @@
           "expr": "sum(rate(parknest_overstays_charged_total[15m])) * 3600",
           "refId": "A",
           "legendFormat": "overstay debits / hr"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum(rate(parknest_blocked_slots_total[15m])) * 3600",
+          "refId": "C",
+          "legendFormat": "blocked slots / hr"
         },
         {
           "datasource": {

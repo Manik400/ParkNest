@@ -42,7 +42,13 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
               <button type="button" [disabled]="busy()" (click)="cancel()">Cancel booking</button>
               @if (cancellation(); as terms) {
                 <span class="muted small">
-                  @if (terms.isFree) {
+                  @if (terms.slotBlocked) {
+                    <!-- Free for a different reason, and the reason is the message. A renter told
+                         only "this is free" will assume good timing rather than that the space
+                         they are driving to has somebody else's car in it. -->
+                    The space was still occupied when this slot came due. Cancelling returns the
+                    whole hold, however late it is.
+                  } @else if (terms.isFree) {
                     Cancelling now returns the whole hold.
                   } @else {
                     <!-- The fee is a server-side policy; showing the figure it will actually
@@ -71,6 +77,20 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
             Settled {{ result.billedMinutes }} minutes for
             {{ result.totalCharged | currency: 'INR' : 'symbol' : '1.2-2' }}.
             Released {{ result.releasedToRenter | currency: 'INR' : 'symbol' : '1.2-2' }} back to you.
+          </div>
+        }
+
+        <!-- The slot could not be delivered: the previous session had not ended when this one was
+             due to start. Called out above the figures because it changes what the renter may do
+             — cancelling is free from here on — and because the money below looks unremarkable. -->
+        @if (booking.blockedByBookingId) {
+          <div class="banner banner--error" role="alert">
+            <strong>The space was still occupied when this slot came due.</strong>
+            Noticed {{ booking.blockedAt | date: 'medium' }}. The previous session over-ran into
+            this booking, so cancelling it costs nothing whatever the notice.
+            <a [routerLink]="['/bookings', booking.blockedByBookingId]">
+              See the session that over-ran
+            </a>
           </div>
         }
 

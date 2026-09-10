@@ -101,6 +101,27 @@ public sealed record OverstayCharged(
     public static string EventName => "booking.overstay-charged";
 }
 
+/// <summary>
+/// A car is still in a space that somebody else has booked, and their slot is about to start or
+/// already has.
+///
+/// Three people need this fact and each needs a different thing from it, which is why it is one
+/// event rather than a field on <see cref="OverstayCharged"/>: the renter still parked can move
+/// the car, the renter on their way can stop driving, and the host can go and look.
+/// </summary>
+/// <param name="BlockedStartTime">When the slot that cannot be delivered was due to begin.</param>
+public sealed record NextSlotBlocked(
+    Guid BlockedBookingId,
+    Guid BlockedRenterId,
+    Guid BlockingBookingId,
+    Guid BlockingRenterId,
+    Guid HostId,
+    Guid ParkingSpaceId,
+    DateTimeOffset BlockedStartTime) : IIntegrationEvent
+{
+    public static string EventName => "booking.next-slot-blocked";
+}
+
 public sealed record DisputeRaised(
     Guid DisputeId,
     Guid BookingId,

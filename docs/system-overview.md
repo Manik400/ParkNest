@@ -63,6 +63,21 @@ The host still receives every credit that could actually be collected. The platf
 renter's future access instead of chasing cash from someone who has already driven away. That
 tradeoff — *degrade the debtor's access, don't pursue the debt* — is the whole design.
 
+### The case the credit model does not answer
+
+The same renter's car is still in the bay when the next renter's slot begins. The credits handle
+the money and settle nothing else: the second renter is driving to a space that has somebody else's
+car in it, and no balance fixes that.
+
+So the overstay meter looks, on every sweep, for a booking on the same space due to start shortly,
+flags it once, and tells all three parties — move the car, stop driving, go and look. The flag also
+makes that booking free to cancel however late it is, because a late-cancellation fee compensates a
+host for notice too short to re-let a slot, and there was no slot to re-let.
+
+What remains open is compensation beyond the refund: whether the turned-away renter gets anything
+on top of their hold back, and who funds it. Each answer is a different ledger shape, and the half
+that is right under all of them shipped without waiting for the decision.
+
 ### Compliance caveat
 
 A credit balance that converts back to cash resembles a Prepaid Payment Instrument under RBI rules.
