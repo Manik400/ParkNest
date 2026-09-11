@@ -24,7 +24,10 @@ public static class DependencyInjection
         services.AddScoped<Queries.IParkNestQueries, Queries.ParkNestQueries>();
         services.AddScoped<Vehicles.IVehicleService, Vehicles.VehicleService>();
         services.AddScoped<Payments.IPaymentService, Payments.PaymentService>();
+        services.AddScoped<Payments.IPaymentSettlement, Payments.PaymentSettlement>();
+        services.AddScoped<Payments.IPaymentReconciler, Payments.PaymentReconciler>();
         services.AddScoped<Payments.IPaymentOrderExpiry, Payments.PaymentOrderExpiry>();
+        services.AddSingleton<Payments.PaymentUrls>();
         services.AddScoped<Disputes.IDisputeService, Disputes.DisputeService>();
         services.AddScoped<Ratings.IRatingService, Ratings.RatingService>();
         services.AddScoped<Notifications.INotificationService, Notifications.NotificationService>();

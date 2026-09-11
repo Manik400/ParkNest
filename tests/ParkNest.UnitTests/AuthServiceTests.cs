@@ -365,6 +365,103 @@ public sealed class AuthServiceTests : IDisposable
         refreshed.UserId.Should().Be(second.UserId);
     }
 
+    private const string Email = "renter@example.com";
+
+    [Fact]
+    public async Task Signing_in_by_email_creates_an_account_with_no_phone()
+    {
+        await _h.Auth.RequestOtpAsync(Email);
+        var result = await _h.Auth.VerifyOtpAsync(Email, _h.EmailSender.LastCode!);
+
+        result.IsNewUser.Should().BeTrue();
+
+        var user = await _h.Db.Users.SingleAsync(u => u.Id == result.UserId);
+        user.Email.Should().Be(Email);
+        user.Phone.Should().BeNull();
+
+        _h.OtpSender.Sent.Should().BeEmpty("an email address must never be handed to the SMS sender");
+    }
+
+    [Fact]
+    public async Task Email_addresses_are_normalised_so_case_and_spacing_do_not_create_duplicate_accounts()
+    {
+        await _h.Auth.RequestOtpAsync("  Renter@Example.COM ");
+        var first = await _h.Auth.VerifyOtpAsync("renter@example.com", _h.EmailSender.LastCode!);
+
+        _h.Clock.Advance(PastCooldown);
+        await _h.Auth.RequestOtpAsync(Email);
+        var second = await _h.Auth.VerifyOtpAsync("RENTER@example.com", _h.EmailSender.LastCode!);
+
+        second.UserId.Should().Be(first.UserId);
+        second.IsNewUser.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("renter@")]
+    [InlineData("@example.com")]
+    [InlineData("renter@@example.com")]
+    [InlineData("renter@localhost")]
+    [InlineData("Renter <renter@example.com>")]
+    public async Task An_invalid_email_address_is_rejected(string email)
+    {
+        var act = () => _h.Auth.RequestOtpAsync(email);
+
+        await act.Should().ThrowAsync<DomainException>();
+        _h.EmailSender.Sent.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_code_sent_to_an_email_cannot_be_used_for_a_phone_number()
+    {
+        await _h.Auth.RequestOtpAsync(Email);
+        var code = _h.EmailSender.LastCode!;
+
+        await _h.Auth.RequestOtpAsync(Phone);
+
+        var act = () => _h.Auth.VerifyOtpAsync(Phone, code);
+        await act.Should().ThrowAsync<UnauthorizedException>();
+    }
+
+    [Fact]
+    public async Task The_resend_cooldown_follows_the_normalised_address_not_its_spelling()
+    {
+        await _h.Auth.RequestOtpAsync(Email);
+
+        var act = () => _h.Auth.RequestOtpAsync(Email.ToUpperInvariant());
+
+        await act.Should().ThrowAsync<TooManyRequestsException>();
+        _h.EmailSender.Sent.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task Phone_sign_in_is_refused_when_no_sms_provider_is_configured()
+    {
+        // What Production looks like until an SMS provider is paid for: email only.
+        var emailOnly = new AuthService(
+            _h.Db,
+            new FakeTokenService(_h.Clock),
+            new IOtpSender[] { _h.EmailSender },
+            _h.Clock,
+            Microsoft.Extensions.Options.Options.Create(_h.AuthOptions),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<AuthService>.Instance);
+
+        var act = () => emailOnly.RequestOtpAsync(Phone);
+
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*email*");
+        (await _h.Db.OtpCodes.CountAsync()).Should().Be(0, "a code nobody can receive must not be issued");
+    }
+
+    [Fact]
+    public async Task An_address_on_the_admin_list_signs_up_as_admin_whatever_its_case()
+    {
+        _h.AuthOptions.AdminEmails = new[] { "Ops@Example.com" };
+
+        await _h.Auth.RequestOtpAsync("ops@example.com");
+        var result = await _h.Auth.VerifyOtpAsync("ops@example.com", _h.EmailSender.LastCode!);
+
+        result.Role.Should().Be(UserRole.Admin);
+    }
+
     private async Task<AuthResult> SignInAsync()
     {
         await _h.Auth.RequestOtpAsync(Phone);

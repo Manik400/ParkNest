@@ -32,10 +32,16 @@ Cashfree, or an escrow provider), the ledger does not change shape.
 
 ## Consequences
 
-- Recharge currently has a direct API endpoint for development convenience. **In production it
-  must be driven by the aggregator's webhook only** — a client-callable recharge that credits
-  without a verified payment is a fraud hole. This is called out in the backlog and in the
-  controller's own summary.
+- Recharge is driven only by the aggregator: a verified webhook, or the aggregator's own answer
+  when ParkNest asks it over its authenticated API (ADR 0007). Both are statements from the
+  licensed partner, and the credited amount always comes from ParkNest's own order record. A
+  client-callable recharge that credits without a verified payment would be a fraud hole; the only
+  direct recharge left is the admin-only support endpoint.
+- **Before going live, confirm the wallet model with the gateway and a lawyer.** Credits pay
+  third-party hosts, and hosts can cash out. That can make the wallet a semi-closed prepaid
+  instrument, and pooling-then-paying can look like payment aggregation. The options are the
+  gateway's split/marketplace product, or ParkNest as seller of record. See
+  [payment-gateway-setup-fully-free-rnd.md §7](../payment-gateway-setup-fully-free-rnd.md#7-legal-and-compliance-notes-read-before-going-live).
 - Payout is recorded as `Requested` and the ledger debit happens immediately, so credits cannot be
   double-spent while the transfer is in flight. A failed payout must post a compensating `Refund`
   transaction; that handler does not exist yet.

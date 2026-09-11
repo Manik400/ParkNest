@@ -12,10 +12,13 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasKey(u => u.Id);
 
         builder.Property(u => u.FullName).HasMaxLength(200).IsRequired();
-        builder.Property(u => u.Phone).HasMaxLength(20).IsRequired();
-        builder.Property(u => u.Email).HasMaxLength(200);
+        // Either may be null — an account is created by whichever one the user signed in with —
+        // and both unique indexes admit any number of nulls.
+        builder.Property(u => u.Phone).HasMaxLength(20);
+        builder.Property(u => u.Email).HasMaxLength(254);
 
         builder.HasIndex(u => u.Phone).IsUnique();
+        builder.HasIndex(u => u.Email).IsUnique();
 
         builder.HasMany(u => u.Vehicles)
             .WithOne(v => v.User!)
@@ -34,11 +37,11 @@ public sealed class OtpCodeConfiguration : IEntityTypeConfiguration<OtpCode>
         builder.ToTable("otp_codes");
         builder.HasKey(o => o.Id);
 
-        builder.Property(o => o.Phone).HasMaxLength(20).IsRequired();
+        builder.Property(o => o.Destination).HasMaxLength(254).IsRequired();
         builder.Property(o => o.CodeHash).HasMaxLength(64).IsRequired();
 
-        // Verification looks up the newest unconsumed code for a number.
-        builder.HasIndex(o => new { o.Phone, o.ConsumedAt, o.CreatedAt });
+        // Verification looks up the newest unconsumed code for a destination.
+        builder.HasIndex(o => new { o.Destination, o.ConsumedAt, o.CreatedAt });
 
         // Lets a cleanup job drop expired rows cheaply.
         builder.HasIndex(o => o.ExpiresAt);

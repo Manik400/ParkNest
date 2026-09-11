@@ -32,6 +32,8 @@ public sealed class ControllerResolutionTests
         typeof(VehiclesController),
         typeof(WalletsController),
         typeof(PaymentsController),
+        typeof(CheckoutController),
+        typeof(SandboxCheckoutController),
         typeof(DisputesController),
         typeof(AdminDisputesController),
         typeof(AdminPayoutsController),

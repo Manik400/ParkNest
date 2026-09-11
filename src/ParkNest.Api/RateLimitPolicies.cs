@@ -10,4 +10,5 @@ public static class RateLimitPolicies
     public const string OtpRequest = "otp-request";
     public const string OtpVerify = "otp-verify";
     public const string PaymentWebhook = "payment-webhook";
+    public const string CheckoutPage = "checkout-page";
 }

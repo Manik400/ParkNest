@@ -19,17 +19,17 @@ public sealed class UnconfiguredPaymentGateway : IPaymentGateway
 
     public string Name => "None";
 
-    public string SignatureHeader => "X-ParkNest-Signature";
+    public bool WebhookIsAuthoritative => true;
 
-    public Task<GatewayOrder> CreateOrderAsync(
-        Guid orderId,
-        decimal amount,
-        string currency,
-        CancellationToken cancellationToken = default) =>
+    public Task<GatewayOrder> CreateOrderAsync(GatewayOrderRequest request, CancellationToken cancellationToken = default) =>
         throw new DomainException(Message);
 
     /// <summary>Always false. Without a shared secret nothing can be verified, so nothing is trusted.</summary>
-    public bool VerifyWebhookSignature(string rawBody, string signature) => false;
+    public bool VerifyWebhook(WebhookRequest request) => false;
 
-    public WebhookEvent ParseWebhook(string rawBody) => throw new DomainException(Message);
+    public GatewayOutcome ParseWebhook(string rawBody) => throw new DomainException(Message);
+
+    /// <summary>There is no gateway to ask.</summary>
+    public Task<GatewayOutcome?> QueryOrderAsync(string providerOrderId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<GatewayOutcome?>(null);
 }

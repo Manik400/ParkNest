@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
 using ParkNest.Application.Options;
-using ParkNest.Application.Wallets;
 using ParkNest.Domain.Common;
 using ParkNest.Domain.Payments;
 
@@ -11,14 +10,20 @@ namespace ParkNest.Application.Payments;
 
 public interface IPaymentService
 {
-    /// <summary>Starts a credit purchase for the authenticated caller.</summary>
-    Task<StartPaymentResult> StartAsync(decimal amount, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Starts a credit purchase for the authenticated caller. <paramref name="returnTo"/> names the
+    /// client that started it ("admin", "app"), which decides where the browser lands afterwards.
+    /// </summary>
+    Task<StartPaymentResult> StartAsync(
+        decimal amount,
+        string? returnTo = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Handles a gateway callback. Verifies the signature first, then credits the wallet using the
-    /// amount recorded when the order was created — never an amount taken from the callback.
+    /// Handles a gateway callback. Verifies it first, then credits the wallet using the amount
+    /// recorded when the order was created — never an amount taken from the callback.
     /// </summary>
-    Task<WebhookResult> HandleWebhookAsync(string rawBody, string signature, CancellationToken cancellationToken = default);
+    Task<WebhookResult> HandleWebhookAsync(WebhookRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Where an order stands, for the caller who owns it. This is how a client learns a payment
@@ -45,46 +50,68 @@ public sealed class PaymentService : IPaymentService
 {
     private readonly IParkNestDbContext _db;
     private readonly IPaymentGateway _gateway;
-    private readonly IWalletService _wallets;
+    private readonly IPaymentSettlement _settlement;
+    private readonly IPaymentReconciler _reconciler;
+    private readonly PaymentUrls _urls;
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
-    private readonly PlatformOptions _options;
+    private readonly PlatformOptions _platform;
+    private readonly PaymentOptions _payments;
     private readonly ILogger<PaymentService> _logger;
 
     public PaymentService(
         IParkNestDbContext db,
         IPaymentGateway gateway,
-        IWalletService wallets,
+        IPaymentSettlement settlement,
+        IPaymentReconciler reconciler,
+        PaymentUrls urls,
         ICurrentUser currentUser,
         IClock clock,
-        IOptions<PlatformOptions> options,
+        IOptions<PlatformOptions> platform,
+        IOptions<PaymentOptions> payments,
         ILogger<PaymentService> logger)
     {
         _db = db;
         _gateway = gateway;
-        _wallets = wallets;
+        _settlement = settlement;
+        _reconciler = reconciler;
+        _urls = urls;
         _currentUser = currentUser;
         _clock = clock;
-        _options = options.Value;
+        _platform = platform.Value;
+        _payments = payments.Value;
         _logger = logger;
     }
 
-    public async Task<StartPaymentResult> StartAsync(decimal amount, CancellationToken cancellationToken = default)
+    public async Task<StartPaymentResult> StartAsync(
+        decimal amount,
+        string? returnTo = null,
+        CancellationToken cancellationToken = default)
     {
         var userId = _currentUser.RequireUserId();
         amount = Money.Round(amount);
 
-        if (amount < _options.MinimumRechargeCredits)
+        if (amount < _platform.MinimumRechargeCredits)
         {
-            throw new DomainException($"Minimum recharge is {_options.MinimumRechargeCredits:0.00} credits.");
+            throw new DomainException($"Minimum recharge is {_platform.MinimumRechargeCredits:0.00} credits.");
         }
 
-        if (amount > _options.MaximumRechargeCredits)
+        if (amount > _platform.MaximumRechargeCredits)
         {
             // An upper bound keeps a fat-fingered or scripted order from parking an absurd sum in
             // the escrow account, and caps the blast radius of a compromised session.
-            throw new DomainException($"Maximum recharge is {_options.MaximumRechargeCredits:0.00} credits.");
+            throw new DomainException($"Maximum recharge is {_platform.MaximumRechargeCredits:0.00} credits.");
         }
+
+        var target = PaymentUrls.Normalise(returnTo);
+
+        if (!_urls.IsKnownReturnTo(target))
+        {
+            throw new DomainException($"Unknown return target '{target}'.");
+        }
+
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        var now = _clock.UtcNow;
 
         var order = new PaymentOrder
         {
@@ -92,10 +119,26 @@ public sealed class PaymentService : IPaymentService
             Amount = amount,
             Currency = "INR",
             Status = PaymentOrderStatus.Created,
-            CreatedAt = _clock.UtcNow
+            ReturnTo = target,
+            CreatedAt = now
         };
 
-        var gatewayOrder = await _gateway.CreateOrderAsync(order.Id, amount, order.Currency, cancellationToken);
+        var gatewayOrder = await _gateway.CreateOrderAsync(
+            new GatewayOrderRequest(
+                order.Id,
+                amount,
+                order.Currency,
+                new PaymentCustomer(
+                    userId,
+                    user?.Phone,
+                    user?.Email,
+                    string.IsNullOrWhiteSpace(user?.FullName) ? null : user.FullName),
+                _urls.ReturnUrl(order.Id),
+                _urls.WebhookUrl,
+                // Matched to our own sweep, so the provider stops taking money for an order at
+                // about the moment we stop expecting it.
+                now.AddMinutes(_payments.OrderExpiryMinutes)),
+            cancellationToken);
 
         order.ProviderOrderId = gatewayOrder.ProviderOrderId;
 
@@ -115,6 +158,14 @@ public sealed class PaymentService : IPaymentService
         // this open would let one user enumerate another's recharge history and amounts.
         _currentUser.RequireSelfOrAdmin(order.UserId);
 
+        if (IsDueForReconcile(order))
+        {
+            // The client is polling because it has not heard. Ask the gateway rather than wait on
+            // a webhook that may never come — but not on every poll: the app asks every couple of
+            // seconds, and each ask here is a call to the provider.
+            await _reconciler.ReconcileAsync(order.Id, "poll", cancellationToken);
+        }
+
         return new PaymentOrderView(
             order.Id,
             order.ProviderOrderId,
@@ -127,83 +178,54 @@ public sealed class PaymentService : IPaymentService
     }
 
     public async Task<WebhookResult> HandleWebhookAsync(
-        string rawBody,
-        string signature,
+        WebhookRequest request,
         CancellationToken cancellationToken = default)
     {
-        // Signature first, before the body is trusted enough even to parse. An unsigned caller
-        // hitting this endpoint must not be able to mint credits — that is the entire point.
-        if (!_gateway.VerifyWebhookSignature(rawBody, signature))
+        // Verification first, before the body is trusted enough even to parse. An unverified
+        // caller hitting this endpoint must not be able to mint credits — that is the entire point.
+        if (!_gateway.VerifyWebhook(request))
         {
-            _logger.LogWarning("Rejected a {Gateway} webhook with an invalid signature.", _gateway.Name);
+            _logger.LogWarning("Rejected a {Gateway} webhook that failed verification.", _gateway.Name);
             throw new UnauthorizedException("Invalid webhook signature.");
         }
 
-        var evt = _gateway.ParseWebhook(rawBody);
+        var outcome = _gateway.ParseWebhook(request.RawBody);
+
+        if (!_gateway.WebhookIsAuthoritative)
+        {
+            // Verification proved who sent it, not what it says. Ask the gateway itself and apply
+            // that answer instead; if it cannot be asked, apply nothing.
+            var confirmed = await _gateway.QueryOrderAsync(outcome.ProviderOrderId, cancellationToken);
+            outcome = confirmed ?? outcome with { Kind = GatewayOutcomeKind.Pending };
+        }
 
         var order = await _db.PaymentOrders
-            .FirstOrDefaultAsync(o => o.ProviderOrderId == evt.ProviderOrderId, cancellationToken);
+            .FirstOrDefaultAsync(o => o.ProviderOrderId == outcome.ProviderOrderId, cancellationToken);
 
         if (order is null)
         {
-            // Signed but unknown: acknowledge so the gateway stops retrying, and log it, because
+            // Verified but unknown: acknowledge so the gateway stops retrying, and log it, because
             // it means our records and theirs disagree.
-            _logger.LogWarning("Verified webhook for unknown order {ProviderOrderId}.", evt.ProviderOrderId);
+            _logger.LogWarning("Verified webhook for unknown order {ProviderOrderId}.", outcome.ProviderOrderId);
             return new WebhookResult(false, "Unknown order.");
         }
 
-        if (order.Status == PaymentOrderStatus.Paid)
+        var result = await _settlement.ApplyAsync(order, outcome, "webhook", cancellationToken);
+
+        return new WebhookResult(true, result.Message);
+    }
+
+    private bool IsDueForReconcile(PaymentOrder order)
+    {
+        if (order.Status != PaymentOrderStatus.Created)
         {
-            // Gateways retry until acknowledged, so duplicates are expected, not exceptional.
-            return new WebhookResult(true, "Already processed.");
+            return false;
         }
 
-        if (order.Status == PaymentOrderStatus.Cancelled)
-        {
-            // We gave up on this order; the payer did not. Expiry is our own bookkeeping and says
-            // nothing about whether money moved, so a verified callback still credits — refusing
-            // would take the money and hand back nothing. Logged, because it means the expiry
-            // window is shorter than what the gateway actually takes to confirm.
-            _logger.LogWarning(
-                "Payment order {OrderId} was expired locally but the gateway has now reported on it.",
-                order.Id);
-        }
+        var now = _clock.UtcNow;
 
-        order.ProviderPaymentId = evt.ProviderPaymentId;
-        order.CompletedAt = _clock.UtcNow;
-
-        if (!evt.Succeeded)
-        {
-            order.Status = PaymentOrderStatus.Failed;
-            order.FailureReason = evt.FailureReason;
-            await _db.SaveChangesAsync(cancellationToken);
-            return new WebhookResult(true, "Recorded failure.");
-        }
-
-        // The amount comes from our own record, not the payload. A tampered body claiming a
-        // larger sum cannot inflate the credit — and the idempotency key is derived from the
-        // order id, so a replayed webhook cannot credit twice either.
-        await _wallets.RechargeAsync(
-            order.UserId,
-            order.Amount,
-            $"payment:{order.Id}",
-            cancellationToken);
-
-        var transaction = await _db.LedgerTransactions
-            .FirstOrDefaultAsync(t => t.IdempotencyKey == $"payment:{order.Id}", cancellationToken);
-
-        order.LedgerTransactionId = transaction?.Id;
-        order.Status = PaymentOrderStatus.Paid;
-        // Clears the expiry note if the sweep had written one, so a paid order never carries a
-        // reason it failed.
-        order.FailureReason = null;
-
-        await _db.SaveChangesAsync(cancellationToken);
-
-        _logger.LogInformation(
-            "Credited {Amount} to {UserId} for payment order {OrderId}.",
-            order.Amount, order.UserId, order.Id);
-
-        return new WebhookResult(true, "Credited.");
+        return now - order.CreatedAt >= TimeSpan.FromSeconds(_payments.ReconcileAfterSeconds)
+               && (order.LastCheckedAt is null
+                   || now - order.LastCheckedAt.Value >= TimeSpan.FromSeconds(_payments.ReconcileMinIntervalSeconds));
     }
 }

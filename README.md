@@ -191,20 +191,93 @@ with *Pay* and *Simulate a declined payment*; either posts an HMAC-signed callba
 webhook endpoint, which verifies it exactly as it would a live one. No money moves.
 
 ```jsonc
-// src/ParkNest.Api/appsettings.json
+// src/ParkNest.Api/appsettings.json (+ dotnet user-secrets for keys)
 "Payments": { "Provider": "Sandbox" }   // local, free, refused in Production
-"Payments": { "Provider": "Razorpay", "KeyId": "…", "KeySecret": "…", "WebhookSecret": "…" }
+"Payments": { "Provider": "Razorpay", "Mode": "Test", "PublicBaseUrl": "https://localhost:7139",
+              "Razorpay": { "KeyId": "rzp_test_…", "KeySecret": "…", "WebhookSecret": "…" } }
 "Payments": { "Provider": "None" }      // payment endpoints report "not configured"
 ```
 
-There is no open-source gateway that settles real funds — that needs a licensed PSP — so the
-sandbox reproduces the *protocol* rather than pretending to be one, and switching to Razorpay
-changes nothing but the edge of the system. See
-[docs/adr/0006-sandbox-payment-gateway.md](docs/adr/0006-sandbox-payment-gateway.md).
+**Which provider, and what it costs:** see [docs/payment-gateway-setup-fully-free-rnd.md](docs/payment-gateway-setup-fully-free-rnd.md).
+In short:
+- Nothing settles real money for free forever.
+- Stripe and PayPal can't be used by an Indian individual.
+- The cheapest route is a gateway's zero-fee window for new merchants: Cashfree 0% UPI until Mar
+  2027 (adapter to come), or Razorpay 0% for 90 days (adapter ready).
+
+To connect a provider, run the script below. It asks for the keys with hidden input, stores them in
+`dotnet user-secrets`, and prints the webhook URL to paste into the provider's dashboard. `-Reset`
+goes back to the sandbox.
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/connect-payments.ps1
+```
+
+How a payment is confirmed ([ADR 0007](docs/adr/0007-provider-selectable-gateways.md)):
+- **Checkout:** every checkout payload carries a `checkout_url`. It is the provider's hosted page, or
+  `/checkout/{id}` on the API, which opens a JavaScript-only provider's sheet. Neither client
+  embeds a provider SDK.
+- **Confirmation:** credits are issued by a verified webhook, or by the API asking the provider
+  directly. It asks when the browser returns, while the client polls, and before the sweep expires
+  an order. A missed webhook still credits exactly once, so the provider's sandbox works locally
+  without a tunnel. Run `cloudflared tunnel --url https://localhost:7139` only to see webhooks
+  themselves.
+- **Return:** the browser comes back through `/checkout/return/{orderId}`. That endpoint redirects
+  only to the client that started the payment, from `Payments:ReturnUrls`. The mobile app gets a
+  "return to ParkNest" page.
+- **Startup checks:** the API refuses to start on an unknown provider, a half-filled provider
+  section, or the sandbox or `Mode=Test` in Production.
+
+**Before real users**, settle the wallet model with the gateway and a lawyer. It may count as a
+semi-closed prepaid instrument (see ADR 0004 and §7 of the research doc).
+
+There is no open-source gateway that settles real funds, because that needs a licensed PSP. So the
+sandbox reproduces the *protocol* rather than pretending to be one
+([ADR 0006](docs/adr/0006-sandbox-payment-gateway.md)).
 
 ## Sending the OTP
 
-Three providers, and the choice is really about who owns the last hop to the handset.
+Sign-in is a one-time code sent to an **email address or a phone number**. The user types either
+one, and `POST /api/auth/request-otp` accepts `{ "email": ... }` or `{ "phone": ... }`. Each
+channel has its own sender, and a channel with no sender configured is switched off. Asking for a
+code on it gets a clear refusal, never a code that doesn't arrive.
+
+### Email: the free channel
+
+```jsonc
+"Email": { "Provider": "Log" }    // prints the code; never used in Production
+"Email": { "Provider": "Smtp", "Host": "smtp.gmail.com", "Port": 587, "Security": "StartTls",
+           "Username": "you@gmail.com", "Password": "<16-char App Password>" }
+```
+
+`SmtpEmailOtpSender` speaks plain SMTP through MailKit, so it works with any provider:
+- **Gmail** with an App Password: about 500 emails a day.
+- **Brevo's free relay:** 300 a day.
+- **A local mail catcher** (smtp4dev or Mailpit with `Security: None`): unlimited, and nothing
+  leaves the machine.
+
+Nothing is billed per message.
+
+To set up Gmail locally:
+1. Turn on 2-Step Verification on the Google account.
+2. Create an App Password at <https://myaccount.google.com/apppasswords>.
+3. Keep the credentials out of the repo:
+
+```bash
+cd src/ParkNest.Api
+dotnet user-secrets set "Email:Provider" "Smtp"
+dotnet user-secrets set "Email:Username" "you@gmail.com"
+dotnet user-secrets set "Email:Password" "abcdefghijklmnop"   # the App Password, no spaces
+dotnet user-secrets set "Auth:AdminEmails:0" "you@gmail.com"  # optional: sign up as Admin
+```
+
+Elsewhere, use environment variables (`Email__Password`, and so on). Production refuses to start
+unless it has either SMTP or a real SMS provider.
+
+### SMS: switched on by a paid provider
+
+There are three providers, and the choice is really about who owns the last hop to the handset.
+In Production with no real SMS provider, phone sign-in is off and users sign in by email.
 
 ```jsonc
 // src/ParkNest.Api/appsettings.json

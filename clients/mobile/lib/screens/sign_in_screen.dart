@@ -5,8 +5,8 @@ import '../core/api_client.dart';
 import '../core/models.dart';
 import '../widgets/common.dart';
 
-/// Phone, then the code that arrives by SMS. No password anywhere, which is both what this market
-/// expects and the reason there is nothing to leak.
+/// An email address or phone number, then the code that arrives in the inbox or by SMS. No
+/// password anywhere, which is the reason there is nothing to leak.
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -15,7 +15,7 @@ class SignInScreen extends StatefulWidget {
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-  final _phone = TextEditingController();
+  final _destination = TextEditingController();
   final _code = TextEditingController();
 
   OtpChallenge? _challenge;
@@ -25,13 +25,21 @@ class _SignInScreenState extends State<SignInScreen> {
   @override
   void initState() {
     super.initState();
-    // The send button enables on a plausible number, so it has to rebuild as the field changes.
-    _phone.addListener(() => setState(() {}));
+    // The send button enables on a plausible entry, so it has to rebuild as the field changes.
+    _destination.addListener(() => setState(() {}));
+  }
+
+  /// Loose on purpose: the API does the real validation and says what is wrong.
+  bool get _plausible {
+    final value = _destination.text.trim();
+    return value.contains('@')
+        ? value.length >= 5
+        : value.replaceAll(RegExp(r'\D'), '').length >= 10;
   }
 
   @override
   void dispose() {
-    _phone.dispose();
+    _destination.dispose();
     _code.dispose();
     super.dispose();
   }
@@ -43,14 +51,14 @@ class _SignInScreenState extends State<SignInScreen> {
     });
 
     try {
-      final challenge = await Services.of(context).requestOtp(_phone.text.trim());
+      final challenge = await Services.of(context).requestOtp(_destination.text.trim());
 
       if (!mounted) return;
 
       setState(() {
         _challenge = challenge;
-        // Outside Production the API hands back the code, because no SMS gateway is wired. Filling
-        // it in beats making someone read it off a screen and retype it.
+        // With no real email or SMS sender configured the API hands back the code. Filling it in
+        // beats making someone read it off a screen and retype it.
         _code.text = challenge.devCode ?? '';
       });
     } on ApiException catch (error) {
@@ -74,7 +82,7 @@ class _SignInScreenState extends State<SignInScreen> {
 
     try {
       // The router is watching the session and moves off this screen by itself once it changes.
-      await Services.of(context).verifyOtp(_phone.text.trim(), _code.text.trim());
+      await Services.of(context).verifyOtp(_destination.text.trim(), _code.text.trim());
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() => _error = error.message);
@@ -110,13 +118,14 @@ class _SignInScreenState extends State<SignInScreen> {
                   const SizedBox(height: 32),
 
                   TextField(
-                    controller: _phone,
+                    controller: _destination,
                     enabled: !awaitingCode && !_busy,
-                    keyboardType: TextInputType.phone,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.email],
+                    autocorrect: false,
                     decoration: const InputDecoration(
-                      labelText: 'Phone number',
-                      prefixIcon: Icon(Icons.phone_outlined),
+                      labelText: 'Email or phone number',
+                      prefixIcon: Icon(Icons.alternate_email),
                     ),
                   ),
 
@@ -138,8 +147,8 @@ class _SignInScreenState extends State<SignInScreen> {
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
-                          'Development build: the API returned this code because no SMS gateway '
-                          'is configured.',
+                          'Development build: the API returned this code because no email or SMS '
+                          'sender is configured.',
                           style: theme.textTheme.bodySmall
                               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                         ),
@@ -154,7 +163,7 @@ class _SignInScreenState extends State<SignInScreen> {
                   const SizedBox(height: 24),
 
                   FilledButton(
-                    onPressed: _busy || _phone.text.trim().length < 10
+                    onPressed: _busy || !_plausible
                         ? null
                         : (awaitingCode ? _verify : _requestCode),
                     child: _busy
@@ -172,7 +181,7 @@ class _SignInScreenState extends State<SignInScreen> {
                                 _code.clear();
                                 _error = null;
                               }),
-                      child: const Text('Use a different number'),
+                      child: const Text('Use a different email or number'),
                     ),
 
                   const SizedBox(height: 8),

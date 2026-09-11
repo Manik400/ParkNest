@@ -46,6 +46,13 @@ public sealed class PaymentOrderExpirySweeper : BackgroundService
                 // A scope per pass: the DbContext is scoped and one held for the process lifetime
                 // would accumulate every order it ever tracked.
                 using var scope = _scopes.CreateScope();
+
+                // Ask the gateway about waiting orders before giving up on any of them. An order
+                // whose money moved but whose webhook never arrived is credited here, rather than
+                // cancelled and left for someone to find in a settlement report.
+                var reconciler = scope.ServiceProvider.GetRequiredService<IPaymentReconciler>();
+                await reconciler.ReconcilePendingAsync(cancellationToken: stoppingToken);
+
                 var expiry = scope.ServiceProvider.GetRequiredService<IPaymentOrderExpiry>();
                 await expiry.ExpireStaleOrdersAsync(stoppingToken);
             }

@@ -12,6 +12,12 @@ const REFRESH_KEY = 'parknest.refreshToken';
 const ROLE_KEY = 'parknest.role';
 const USER_KEY = 'parknest.userId';
 
+/** Only an email address contains '@'. The API validates and normalises either one. */
+function destinationBody(destination: string): { email: string } | { phone: string } {
+  const value = destination.trim();
+  return value.includes('@') ? { email: value } : { phone: value };
+}
+
 /**
  * Holds the bearer token and what it says about the caller.
  *
@@ -51,13 +57,20 @@ export class AuthService {
     return this.hasValidAccessToken() ? this.token() : null;
   }
 
-  requestOtp(phone: string): Observable<OtpChallenge> {
-    return this.http.post<OtpChallenge>(`${environment.apiBaseUrl}/api/auth/request-otp`, { phone });
+  /** Sends a code to an email address or a phone number — whichever was typed. */
+  requestOtp(destination: string): Observable<OtpChallenge> {
+    return this.http.post<OtpChallenge>(
+      `${environment.apiBaseUrl}/api/auth/request-otp`,
+      destinationBody(destination),
+    );
   }
 
-  verifyOtp(phone: string, code: string): Observable<AuthResult> {
+  verifyOtp(destination: string, code: string): Observable<AuthResult> {
     return this.http
-      .post<AuthResult>(`${environment.apiBaseUrl}/api/auth/verify-otp`, { phone, code })
+      .post<AuthResult>(`${environment.apiBaseUrl}/api/auth/verify-otp`, {
+        ...destinationBody(destination),
+        code,
+      })
       .pipe(tap((result) => this.store(result)));
   }
 

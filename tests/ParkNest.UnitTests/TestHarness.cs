@@ -80,11 +80,12 @@ public sealed class TestHarness : IDisposable
             OtpMaxAttempts = 3
         };
 
-        OtpSender = new RecordingOtpSender();
+        OtpSender = new RecordingOtpSender(OtpChannel.Sms);
+        EmailSender = new RecordingOtpSender(OtpChannel.Email);
         Auth = new AuthService(
             Db,
-            new FakeTokenService(),
-            OtpSender,
+            new FakeTokenService(Clock),
+            new IOtpSender[] { OtpSender, EmailSender },
             Clock,
             Microsoft.Extensions.Options.Options.Create(AuthOptions),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<AuthService>.Instance);
@@ -104,7 +105,10 @@ public sealed class TestHarness : IDisposable
     public RecordingEventBus Events { get; }
     public IAuthService Auth { get; }
     public AuthOptions AuthOptions { get; }
+    /// <summary>The SMS channel. Named before email existed, and most auth tests are about phones.</summary>
     public RecordingOtpSender OtpSender { get; }
+
+    public RecordingOtpSender EmailSender { get; }
 
     public async Task<User> AddUserAsync(UserRole role, KycStatus kyc = KycStatus.NotStarted)
     {

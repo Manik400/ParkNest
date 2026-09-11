@@ -408,15 +408,16 @@ class StartPaymentResult {
   final String providerOrderId;
   final double amount;
 
-  /// What the selected gateway needs to open its checkout sheet: SDK options for Razorpay, a path
-  /// for the sandbox. An envelope, never a bare URL — see [checkoutUrl].
+  /// JSON describing the checkout. Every gateway the API offers puts a `checkout_url` in it — the
+  /// sandbox's page, the provider's hosted page, or an API page that opens the provider's sheet —
+  /// so the app never needs a provider SDK. An envelope, never a bare URL — see [checkoutUrl].
   final String checkoutPayload;
 
-  /// The gateway's hosted page, or null when this gateway expects its own SDK instead.
+  /// The page to open for checkout, or null for a payload that carries none.
   ///
-  /// [apiBaseUrl] is needed because the gateway returns a path relative to its own host, which for
-  /// the sandbox is the API itself. Treating [checkoutPayload] as a link directly is the obvious
-  /// mistake and fails at launch with nothing useful to show the user.
+  /// [apiBaseUrl] is needed because the URL may be relative to the API (the sandbox's is).
+  /// Treating [checkoutPayload] as a link directly is the obvious mistake and fails at launch with
+  /// nothing useful to show the user.
   String? checkoutUrl(String apiBaseUrl) {
     final Object? decoded;
 

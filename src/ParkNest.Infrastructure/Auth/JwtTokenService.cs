@@ -21,7 +21,7 @@ public sealed class JwtTokenService : ITokenService
         _clock = clock;
     }
 
-    public (string Token, DateTimeOffset ExpiresAt) CreateAccessToken(Guid userId, UserRole role, string phone)
+    public (string Token, DateTimeOffset ExpiresAt) CreateAccessToken(Guid userId, UserRole role, string? phone, string? email)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SigningKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -34,9 +34,20 @@ public sealed class JwtTokenService : ITokenService
             new(JwtRegisteredClaimNames.Sub, userId.ToString()),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new(ClaimTypes.NameIdentifier, userId.ToString()),
-            new(ClaimTypes.Role, role.ToString()),
-            new("phone", phone)
+            new(ClaimTypes.Role, role.ToString())
         };
+
+        // Whichever contacts the account has; one created by email has no phone yet, and a claim
+        // cannot carry a null.
+        if (!string.IsNullOrEmpty(phone))
+        {
+            claims.Add(new Claim("phone", phone));
+        }
+
+        if (!string.IsNullOrEmpty(email))
+        {
+            claims.Add(new Claim("email", email));
+        }
 
         var token = new JwtSecurityToken(
             issuer: _options.Issuer,

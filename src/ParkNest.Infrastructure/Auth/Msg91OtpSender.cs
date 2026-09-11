@@ -30,6 +30,8 @@ public sealed class Msg91OtpSender : IOtpSender
         _http.DefaultRequestHeaders.Add("authkey", _options.AuthKey);
     }
 
+    public OtpChannel Channel => OtpChannel.Sms;
+
     /// <summary>Never — the code goes to the handset and nowhere else.</summary>
     public bool ExposesCodeInResponse => false;
 

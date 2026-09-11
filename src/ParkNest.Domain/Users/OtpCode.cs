@@ -1,14 +1,18 @@
 namespace ParkNest.Domain.Users;
 
 /// <summary>
-/// A pending phone verification. The code itself is never stored — only a keyed hash — so a
-/// database leak does not hand out live login codes.
+/// A pending phone or email verification. The code itself is never stored — only a keyed hash —
+/// so a database leak does not hand out live login codes.
 /// </summary>
 public class OtpCode
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    public string Phone { get; set; } = string.Empty;
+    /// <summary>
+    /// Normalised phone digits or a lower-cased email address. The two cannot collide: only an
+    /// address contains '@'.
+    /// </summary>
+    public string Destination { get; set; } = string.Empty;
 
     /// <summary>HMAC of the code, keyed with a server-side pepper.</summary>
     public string CodeHash { get; set; } = string.Empty;

@@ -33,8 +33,15 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [x] **Refresh tokens and revocation.** Access tokens now live an hour; the session lives on a
       stored refresh token that rotates on every use. Replaying a spent token revokes the whole
       family descended from that sign-in. Signing out ends the session server-side.
-- [x] **Real SMS gateway.** MSG91, chosen for Indian DLT compliance. Startup still fails in
-      Production if no real sender is configured.
+- [x] **Real SMS gateway.** MSG91, chosen for Indian DLT compliance.
+- [x] **Email sign-in, the free channel.** A code can go to an email address or a phone number.
+      Email is sent over plain SMTP through MailKit: Gmail with an App Password, Brevo's free
+      relay, or a local mail catcher. Nothing is billed per message. With no paid SMS provider,
+      phone sign-in is switched off rather than faked. Production needs at least one real channel
+      to start. `User.Phone` can now be null.
+- [ ] **Add the other contact to an account.** The schema holds both phone and email per user,
+      but there is no endpoint yet for a signed-in user to verify and attach the second one. Until
+      there is, the same person signing in by phone and by email gets two accounts.
 - [x] **Recharge via aggregator webhook only.** Credits are now issued solely by a signature-verified
       webhook, for the amount recorded server-side at order time, under an idempotency key derived
       from the order id. See [adr/0004](adr/0004-credits-are-not-a-wallet.md).
@@ -51,9 +58,19 @@ Phases follow PRD §18. Items are ordered within each phase.
 - [x] Integration test against a real PostGIS container, covering geo-search: radius, ordering,
       distance in metres, the filters, and that the generated `geog` column tracks an edit
 - [x] Admin dispute console endpoints + resolution posting a compensating transaction
-- [ ] Razorpay integration exercised for real. The code is written and unit-tested, but it has
-      never talked to Razorpay's API — the sandbox proves the shape, not their particular JSON.
-      The escrow/aggregator arrangement itself is still unestablished.
+- [x] **Provider-selectable gateways** ([adr/0007](adr/0007-provider-selectable-gateways.md)).
+      `Payments:Provider` is actually obeyed now, with startup refusals for anything that could
+      move money wrongly.
+      - Every checkout payload carries a `checkout_url`, so clients need no provider SDK.
+      - Verification sees every header.
+      - Payments are also confirmed by asking the gateway (return trip, poll, sweep), so a
+        missed webhook still credits exactly once.
+      - The mobile app returns to a "go back to the app" page.
+      - Research and costs are in [payment-gateway-setup-fully-free-rnd.md](payment-gateway-setup-fully-free-rnd.md).
+- [ ] **A real provider exercised for real.** Next is the founder's pick: Cashfree is recommended
+      (0% UPI for new merchants until Mar 2027; needs its adapter), and Razorpay is ready to try
+      today (`scripts/connect-payments.ps1` with test keys). The escrow/aggregator arrangement is
+      still unestablished.
 - [x] Flutter app: renter + host in one app. Sign-in, find a space, quote and book, run the
       session, wallet with credit purchase, vehicles, hosting, disputes. Device location and a
       map are the notable absences — the search screen takes coordinates for now.

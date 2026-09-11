@@ -19,7 +19,10 @@ public sealed class AuthController : ControllerBase
         _currentUser = currentUser;
     }
 
-    /// <summary>Sends a one-time code. Creates the account on first use.</summary>
+    /// <summary>
+    /// Sends a one-time code to an email address or a phone number — send one or the other.
+    /// Creates the account on first use.
+    /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitPolicies.OtpRequest)]
     [HttpPost("request-otp")]
@@ -27,7 +30,7 @@ public sealed class AuthController : ControllerBase
         [FromBody] RequestOtpRequest request,
         CancellationToken cancellationToken)
     {
-        var challenge = await _auth.RequestOtpAsync(request.Phone, cancellationToken);
+        var challenge = await _auth.RequestOtpAsync(DestinationOf(request.Email, request.Phone), cancellationToken);
         return Ok(challenge);
     }
 
@@ -39,7 +42,7 @@ public sealed class AuthController : ControllerBase
         [FromBody] VerifyOtpRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _auth.VerifyOtpAsync(request.Phone, request.Code, cancellationToken);
+        var result = await _auth.VerifyOtpAsync(DestinationOf(request.Email, request.Phone), request.Code, cancellationToken);
         return Ok(result);
     }
 
@@ -75,11 +78,15 @@ public sealed class AuthController : ControllerBase
     [HttpGet("me")]
     public ActionResult<CurrentUserResponse> Me() =>
         Ok(new CurrentUserResponse(_currentUser.RequireUserId(), _currentUser.Role?.ToString()));
+
+    /// <summary>Email wins when both are sent; the service tells the two apart and validates.</summary>
+    private static string DestinationOf(string? email, string? phone) =>
+        string.IsNullOrWhiteSpace(email) ? phone ?? string.Empty : email;
 }
 
-public sealed record RequestOtpRequest(string Phone);
+public sealed record RequestOtpRequest(string? Phone = null, string? Email = null);
 
-public sealed record VerifyOtpRequest(string Phone, string Code);
+public sealed record VerifyOtpRequest(string Code, string? Phone = null, string? Email = null);
 
 public sealed record RefreshRequest(string RefreshToken);
 

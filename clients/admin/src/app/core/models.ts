@@ -176,14 +176,14 @@ export interface StartPaymentResult {
   orderId: string;
   providerOrderId: string;
   amount: number;
-  /** Opaque JSON the gateway's checkout SDK consumes. See CheckoutPayload for the shape we read. */
+  /** JSON describing the checkout. See CheckoutPayload for the shape we read. */
   checkoutPayload: string;
 }
 
 /**
- * What we parse out of `checkoutPayload`. The sandbox gateway hands us a URL to redirect to; a
- * real aggregator hands us keys for its JS SDK instead, so `checkout_url` is what tells the two
- * apart at runtime.
+ * What we parse out of `checkoutPayload`. Every gateway sends a `checkout_url` to open: the
+ * sandbox's page, the provider's hosted page, or an API page that opens the provider's sheet. So
+ * the client never needs a provider SDK. A relative URL is relative to the API.
  */
 export interface CheckoutPayload {
   provider: string;
@@ -310,7 +310,8 @@ export type PayoutStatus = 'Requested' | 'Processing' | 'Paid' | 'Failed';
 export interface Payout {
   payoutId: string;
   hostId: string;
-  hostPhone: string;
+  /** Null for a host who signed up by email. */
+  hostPhone: string | null;
   hostName: string;
   amount: number;
   status: PayoutStatus;

@@ -133,7 +133,8 @@ public sealed record FailPayoutRequest(string Reason);
 public sealed record PayoutView(
     Guid PayoutId,
     Guid HostId,
-    string HostPhone,
+    // Null for a host who signed up by email.
+    string? HostPhone,
     string HostName,
     decimal Amount,
     string Status,

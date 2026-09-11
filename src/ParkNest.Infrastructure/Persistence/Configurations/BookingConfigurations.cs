@@ -82,6 +82,7 @@ public sealed class PaymentOrderConfiguration : IEntityTypeConfiguration<Payment
         builder.Property(o => o.ProviderOrderId).HasMaxLength(120).IsRequired();
         builder.Property(o => o.ProviderPaymentId).HasMaxLength(120);
         builder.Property(o => o.FailureReason).HasMaxLength(500);
+        builder.Property(o => o.ReturnTo).HasMaxLength(20);
 
         // Webhook lookup is by the gateway's id, and it must resolve to exactly one order.
         builder.HasIndex(o => o.ProviderOrderId).IsUnique();

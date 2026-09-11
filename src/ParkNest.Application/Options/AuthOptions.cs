@@ -46,4 +46,7 @@ public sealed class AuthOptions
 
     /// <summary>Phone numbers permitted to mint an admin token. Empty in production deployments.</summary>
     public string[] AdminPhones { get; set; } = Array.Empty<string>();
+
+    /// <summary>Email addresses permitted to mint an admin token. Compared case-insensitively.</summary>
+    public string[] AdminEmails { get; set; } = Array.Empty<string>();
 }

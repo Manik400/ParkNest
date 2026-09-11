@@ -26,13 +26,21 @@ class Api {
 
   // --- Auth ---------------------------------------------------------------
 
-  Future<OtpChallenge> requestOtp(String phone) async => OtpChallenge.fromJson(
-        _map(await client.postAnonymous('/api/auth/request-otp', body: {'phone': phone})),
+  /// Only an email address contains '@'. The API validates and normalises either one.
+  Map<String, dynamic> _destination(String destination) {
+    final value = destination.trim();
+    return value.contains('@') ? {'email': value} : {'phone': value};
+  }
+
+  /// Sends a code to an email address or a phone number — whichever was typed.
+  Future<OtpChallenge> requestOtp(String destination) async => OtpChallenge.fromJson(
+        _map(await client.postAnonymous('/api/auth/request-otp', body: _destination(destination))),
       );
 
-  Future<AuthResult> verifyOtp(String phone, String code) async {
+  Future<AuthResult> verifyOtp(String destination, String code) async {
     final result = AuthResult.fromJson(
-      _map(await client.postAnonymous('/api/auth/verify-otp', body: {'phone': phone, 'code': code})),
+      _map(await client.postAnonymous('/api/auth/verify-otp',
+          body: {..._destination(destination), 'code': code})),
     );
 
     await session.save(result);
@@ -77,8 +85,11 @@ class Api {
 
   /// Starts a credit purchase. Issues nothing — the wallet only moves when the gateway's signed
   /// webhook confirms the money arrived.
+  ///
+  /// `returnTo: 'app'` makes the browser's trip end on a "return to the app" page rather than the
+  /// admin site's wallet, which a phone cannot reach; the app learns the outcome by polling.
   Future<StartPaymentResult> startPayment(double amount) async => StartPaymentResult.fromJson(
-        _map(await client.post('/api/payments/orders', body: {'amount': amount})),
+        _map(await client.post('/api/payments/orders', body: {'amount': amount, 'returnTo': 'app'})),
       );
 
   /// Where an order stands. Polled after checkout rather than trusting the return trip — coming

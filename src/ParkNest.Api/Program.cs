@@ -149,6 +149,18 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0
         }));
 
+    // The checkout pages are anonymous, and the return page asks the provider about an order on
+    // every visit. The order's own throttle bounds the calls per order; this bounds a caller
+    // walking through order ids. A person paying loads each page once or twice.
+    options.AddPolicy(RateLimitPolicies.CheckoutPage, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
     static string ClientKey(HttpContext http) =>
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 });

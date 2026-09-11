@@ -73,7 +73,11 @@ export class ApiService {
    * signed webhook confirms the money actually arrived.
    */
   startPayment(amount: number): Observable<StartPaymentResult> {
-    return this.http.post<StartPaymentResult>(`${this.base}/api/payments/orders`, { amount });
+    // 'admin' tells the API to send the browser back to this site's wallet page after checkout.
+    return this.http.post<StartPaymentResult>(`${this.base}/api/payments/orders`, {
+      amount,
+      returnTo: 'admin',
+    });
   }
 
   /**

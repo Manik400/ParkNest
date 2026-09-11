@@ -1,7 +1,6 @@
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Options;
 using ParkNest.Application.Payments;
@@ -22,28 +21,36 @@ public sealed class SandboxPaymentTests : IDisposable
     private readonly TestHarness _h = new();
     private readonly SandboxPaymentGateway _gateway;
     private readonly IPaymentService _payments;
+    private readonly IPaymentReconciler _reconciler;
 
     public SandboxPaymentTests()
     {
         _gateway = NewGateway();
-        _payments = new PaymentService(
-            _h.Db, _gateway, _h.Wallets, _h.CurrentUser, _h.Clock,
-            Options.Create(_h.Options),
-            NullLogger<PaymentService>.Instance);
+        (_payments, _reconciler) = PaymentTestSupport.Create(_h, _gateway);
     }
 
     public void Dispose() => _h.Dispose();
 
     /// <summary>No configured secret, so each instance generates its own per-process signing key.</summary>
     private static SandboxPaymentGateway NewGateway(string? secret = null) =>
-        new(Options.Create(new PaymentOptions { Provider = "Sandbox", WebhookSecret = secret ?? string.Empty }));
+        new(Options.Create(new PaymentOptions
+        {
+            Provider = "Sandbox",
+            Sandbox = new SandboxGatewayOptions { WebhookSecret = secret ?? string.Empty }
+        }));
+
+    private static bool Verifies(SandboxPaymentGateway gateway, string body, string signature) =>
+        gateway.VerifyWebhook(new WebhookRequest(body, new Dictionary<string, string>
+        {
+            [SandboxPaymentGateway.SignatureHeaderName] = signature
+        }));
 
     // --- The gateway on its own ------------------------------------------------
 
     [Fact]
     public async Task An_order_carries_a_checkout_url_pointing_at_its_own_id()
     {
-        var order = await _gateway.CreateOrderAsync(Guid.NewGuid(), 500m, "INR");
+        var order = await _gateway.CreateOrderAsync(PaymentTestSupport.SampleRequest());
 
         order.ProviderOrderId.Should().StartWith("sbx_order_");
 
@@ -57,7 +64,7 @@ public sealed class SandboxPaymentTests : IDisposable
     {
         var webhook = _gateway.BuildWebhook("sbx_order_1", succeeded: true);
 
-        _gateway.VerifyWebhookSignature(webhook.Body, webhook.Signature).Should().BeTrue();
+        _gateway.VerifyWebhook(webhook.ToRequest()).Should().BeTrue();
     }
 
     [Fact]
@@ -66,7 +73,7 @@ public sealed class SandboxPaymentTests : IDisposable
         var webhook = _gateway.BuildWebhook("sbx_order_1", succeeded: true);
         var tampered = webhook.Body.Replace("sbx_order_1", "sbx_order_2");
 
-        _gateway.VerifyWebhookSignature(tampered, webhook.Signature).Should().BeFalse();
+        Verifies(_gateway, tampered, webhook.Signature).Should().BeFalse();
     }
 
     [Fact]
@@ -77,7 +84,7 @@ public sealed class SandboxPaymentTests : IDisposable
         var other = NewGateway();
         var webhook = other.BuildWebhook("sbx_order_1", succeeded: true);
 
-        _gateway.VerifyWebhookSignature(webhook.Body, webhook.Signature).Should().BeFalse();
+        _gateway.VerifyWebhook(webhook.ToRequest()).Should().BeFalse();
     }
 
     [Fact]
@@ -88,7 +95,7 @@ public sealed class SandboxPaymentTests : IDisposable
 
         var webhook = first.BuildWebhook("sbx_order_1", succeeded: true);
 
-        second.VerifyWebhookSignature(webhook.Body, webhook.Signature).Should().BeTrue();
+        second.VerifyWebhook(webhook.ToRequest()).Should().BeTrue();
     }
 
     [Fact]
@@ -96,22 +103,23 @@ public sealed class SandboxPaymentTests : IDisposable
     {
         var webhook = _gateway.BuildWebhook("sbx_order_1", succeeded: true);
 
-        _gateway.VerifyWebhookSignature(webhook.Body, "").Should().BeFalse();
+        Verifies(_gateway, webhook.Body, "").Should().BeFalse();
+        _gateway.VerifyWebhook(PaymentTestSupport.Unsigned(webhook.Body)).Should().BeFalse();
     }
 
     [Fact]
-    public void A_capture_parses_as_success_and_a_decline_does_not()
+    public void A_capture_parses_as_paid_and_a_decline_as_failed()
     {
         var captured = _gateway.BuildWebhook("sbx_order_1", succeeded: true);
         var declined = _gateway.BuildWebhook("sbx_order_1", succeeded: false, failureReason: "Card declined.");
 
         var success = _gateway.ParseWebhook(captured.Body);
-        success.Succeeded.Should().BeTrue();
+        success.Kind.Should().Be(GatewayOutcomeKind.Paid);
         success.ProviderOrderId.Should().Be("sbx_order_1");
         success.ProviderPaymentId.Should().StartWith("sbx_pay_");
 
         var failure = _gateway.ParseWebhook(declined.Body);
-        failure.Succeeded.Should().BeFalse();
+        failure.Kind.Should().Be(GatewayOutcomeKind.Failed);
         failure.FailureReason.Should().Be("Card declined.");
     }
 
@@ -124,7 +132,14 @@ public sealed class SandboxPaymentTests : IDisposable
             {"event":"payment.authorized","payload":{"payment":{"entity":{"id":"sbx_pay_1","order_id":"sbx_order_1"}}}}
             """;
 
-        _gateway.ParseWebhook(body).Succeeded.Should().BeFalse();
+        _gateway.ParseWebhook(body).Kind.Should().Be(GatewayOutcomeKind.Pending);
+    }
+
+    [Fact]
+    public async Task The_sandbox_cannot_be_asked_about_an_order()
+    {
+        (await _gateway.QueryOrderAsync("sbx_order_1")).Should().BeNull(
+            "its only record of a payment is the callback its own page sends");
     }
 
     // --- Through the payment service ------------------------------------------
@@ -138,8 +153,8 @@ public sealed class SandboxPaymentTests : IDisposable
         var webhook = _gateway.BuildWebhook(started.ProviderOrderId, succeeded: true);
 
         // Delivered twice, as a real gateway retrying an unacknowledged callback would.
-        await _payments.HandleWebhookAsync(webhook.Body, webhook.Signature);
-        await _payments.HandleWebhookAsync(webhook.Body, webhook.Signature);
+        await _payments.HandleWebhookAsync(webhook.ToRequest());
+        await _payments.HandleWebhookAsync(webhook.ToRequest());
 
         var wallet = await _h.Wallets.GetOrCreateWalletAsync(user.Id);
         wallet.SpendableBalance.Should().Be(500m);
@@ -160,7 +175,7 @@ public sealed class SandboxPaymentTests : IDisposable
         var started = await _payments.StartAsync(500m);
         var webhook = _gateway.BuildWebhook(started.ProviderOrderId, succeeded: false, failureReason: "Declined.");
 
-        await _payments.HandleWebhookAsync(webhook.Body, webhook.Signature);
+        await _payments.HandleWebhookAsync(webhook.ToRequest());
 
         var wallet = await _h.Wallets.GetOrCreateWalletAsync(user.Id);
         wallet.SpendableBalance.Should().Be(0m);
@@ -168,6 +183,17 @@ public sealed class SandboxPaymentTests : IDisposable
         var order = await _h.Db.PaymentOrders.SingleAsync();
         order.Status.Should().Be(PaymentOrderStatus.Failed);
         order.FailureReason.Should().Be("Declined.");
+    }
+
+    [Fact]
+    public async Task The_return_trip_leaves_a_sandbox_order_as_the_callback_left_it()
+    {
+        await _h.AddUserAsync(UserRole.Both);
+        var started = await _payments.StartAsync(500m);
+
+        (await _reconciler.ReconcileAsync(started.OrderId, "return")).Should().BeFalse();
+
+        (await _h.Db.PaymentOrders.SingleAsync()).Status.Should().Be(PaymentOrderStatus.Created);
     }
 
     // --- Order status ----------------------------------------------------------
@@ -185,7 +211,7 @@ public sealed class SandboxPaymentTests : IDisposable
         before.Amount.Should().Be(500m);
 
         var webhook = _gateway.BuildWebhook(started.ProviderOrderId, succeeded: true);
-        await _payments.HandleWebhookAsync(webhook.Body, webhook.Signature);
+        await _payments.HandleWebhookAsync(webhook.ToRequest());
 
         var after = await _payments.GetOrderAsync(started.OrderId);
         after.Status.Should().Be("Paid");
