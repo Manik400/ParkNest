@@ -42,6 +42,18 @@ public class Booking
     /// <summary>Amount the renter owed at settlement but could not cover. Drives <see cref="BookingStatus.InViolation"/>.</summary>
     public decimal ShortfallAmount { get; set; }
 
+    /// <summary>
+    /// The session that was still parked here when this booking's slot came due, if one was.
+    ///
+    /// Set once, by the overstay meter, and never cleared. It is a record of a promise as much as
+    /// a state: once a renter has been told their slot could not be delivered and that cancelling
+    /// is free, the previous car driving off two minutes later must not quietly withdraw that.
+    /// </summary>
+    public Guid? BlockedByBookingId { get; set; }
+
+    /// <summary>When the block was first noticed. Null whenever <see cref="BlockedByBookingId"/> is.</summary>
+    public DateTimeOffset? BlockedAt { get; set; }
+
     public BookingStatus Status { get; set; } = BookingStatus.Held;
     public DetectionMethod? StartDetectionMethod { get; set; }
     public DetectionMethod? EndDetectionMethod { get; set; }
@@ -49,4 +61,7 @@ public class Booking
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public bool IsSettled => Status is BookingStatus.Completed or BookingStatus.InViolation;
+
+    /// <summary>The slot could not be delivered, because the previous car was still in it.</summary>
+    public bool WasBlocked => BlockedByBookingId is not null;
 }

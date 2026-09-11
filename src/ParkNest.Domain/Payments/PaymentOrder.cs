@@ -5,7 +5,7 @@ public enum PaymentOrderStatus
     /// <summary>Created with the gateway, waiting for the user to pay.</summary>
     Created = 0,
 
-    /// <summary>Payment confirmed by a verified webhook and credits issued.</summary>
+    /// <summary>Payment confirmed by the gateway and credits issued.</summary>
     Paid = 1,
 
     Failed = 2,
@@ -16,7 +16,8 @@ public enum PaymentOrderStatus
 
 /// <summary>
 /// A intent to buy credits. Created before the user is sent to the gateway, and only turned into
-/// credits when a signed webhook confirms the money actually arrived.
+/// credits when the gateway confirms — by a verified webhook, or by answering when asked — that the
+/// money actually arrived.
 ///
 /// This record is what makes recharge trustworthy: the amount is fixed here, server-side, so a
 /// tampered callback claiming a larger figure has nothing to stand on (see ADR 0004).
@@ -44,6 +45,19 @@ public class PaymentOrder
 
     /// <summary>Ledger transaction that issued the credits, once paid.</summary>
     public Guid? LedgerTransactionId { get; set; }
+
+    /// <summary>
+    /// Which client started the payment ("admin", "app"), and so where the browser goes after
+    /// checkout. Recorded here rather than carried in the return URL, so nothing a browser sends
+    /// can choose the destination.
+    /// </summary>
+    public string? ReturnTo { get; set; }
+
+    /// <summary>
+    /// When the gateway was last asked where this order stands. Throttles those asks — a polling
+    /// client and a sweep would otherwise call the provider every few seconds per order.
+    /// </summary>
+    public DateTimeOffset? LastCheckedAt { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAt { get; set; }

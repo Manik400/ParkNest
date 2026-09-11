@@ -1,0 +1,81 @@
+name: parknest_mobile
+description: "ParkNest renter and host app."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # Routing. Declarative, and redirects are a first-class concept — the whole
+  # signed-in/signed-out split is one redirect rather than a guard on every screen.
+  go_router: ^14.2.7
+
+  # HTTP. Interceptors are the reason: the refresh-and-retry dance on a 401 belongs in one
+  # place, not at every call site.
+  dio: ^5.7.0
+
+  # Tokens go in the platform keystore/keychain, not shared preferences. A refresh token is a
+  # month-long session; on a rooted device plain prefs are readable by anything.
+  flutter_secure_storage: ^9.2.2
+
+  # Non-secret UI state (last known city, whether the user has seen onboarding).
+  shared_preferences: ^2.3.2
+
+  # Opens the payment checkout sheet in the system browser rather than an in-app webview, so
+  # the user can see the URL they are paying on.
+  url_launcher: ^6.3.0
+
+  intl: ^0.19.0
+
+  # Device location, so finding parking does not start with typing coordinates.
+  #
+  # Pinned below 14 for the iOS/Dart API, and note android/build.gradle: every geolocator_android
+  # from 4.6 on reads `flutter.compileSdkVersion`, a property flutter_tools only began giving
+  # plugin subprojects after 3.24.
+  geolocator: ^13.0.1
+
+  # OpenStreetMap tiles through flutter_map. No API key and no billing account, which matters for
+  # a map that only has to answer "which of these pins is nearest me" — the admin console already
+  # uses Leaflet against the same tiles, so the two clients render the same world.
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # Reading the QR sticker at the space, for a Tier 2 check-in. Pinned to 5.x: 6.0 moves to a
+  # scanner controller API that needs a newer Flutter than this project's 3.24.
+  mobile_scanner: ^5.2.3
+
+  # Drawing that same code, on the host's side, so a sticker can be printed from the phone that
+  # listed the space. Rendering locally rather than from a server-side image keeps the token out
+  # of a URL, and out of whatever caches one.
+  qr_flutter: ^4.1.0
+
+  # Photographs: a listing's pictures, the document behind a KYC submission, the blocked bay in a
+  # dispute. Camera or gallery, and the plugin owns the permission prompt on both platforms.
+  image_picker: ^1.1.2
+
+  # Push, so a booking confirmation reaches a handset that is not holding a socket open. Both are
+  # needed: firebase_core owns the app-level initialisation, firebase_messaging the token and the
+  # message stream.
+  #
+  # The app runs without a Firebase project. `Firebase.initializeApp` throws when there is no
+  # google-services.json, PushService catches it and every notification still arrives — stored on
+  # the server, listed in the app, badged on the bell. What is lost is the buzz on a locked screen,
+  # which is exactly what a missing account should cost.
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

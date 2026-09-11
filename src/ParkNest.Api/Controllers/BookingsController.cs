@@ -72,7 +72,8 @@ public sealed class BookingsController : ControllerBase
         [FromBody] SessionEventRequest request,
         CancellationToken cancellationToken)
     {
-        var booking = await _bookings.StartSessionAsync(bookingId, request.Method, request.At, cancellationToken);
+        var booking = await _bookings.StartSessionAsync(
+            bookingId, request.Method, request.At, request.Proof(), cancellationToken);
         return Ok(BookingResponse.From(booking));
     }
 
@@ -83,7 +84,8 @@ public sealed class BookingsController : ControllerBase
         [FromBody] SessionEventRequest request,
         CancellationToken cancellationToken)
     {
-        var outcome = await _bookings.EndSessionAsync(bookingId, request.Method, request.At, cancellationToken);
+        var outcome = await _bookings.EndSessionAsync(
+            bookingId, request.Method, request.At, request.Proof(), cancellationToken);
 
         return Ok(new SessionOutcomeResponse(
             BookingResponse.From(outcome.Booking),
@@ -95,15 +97,49 @@ public sealed class BookingsController : ControllerBase
             outcome.Shortfall));
     }
 
+    /// <summary>
+    /// What cancelling now would cost. The client asks before showing a confirmation, so the
+    /// figure comes from the same rule that will be applied rather than a copy of the policy.
+    /// </summary>
+    [HttpGet("{bookingId:guid}/cancellation")]
+    public async Task<ActionResult<CancellationTerms>> CancellationTerms(
+        Guid bookingId,
+        CancellationToken cancellationToken) =>
+        Ok(await _bookings.PreviewCancellationAsync(bookingId, cancellationToken));
+
     [HttpPost("{bookingId:guid}/cancel")]
-    public async Task<ActionResult<BookingResponse>> Cancel(Guid bookingId, CancellationToken cancellationToken)
+    public async Task<ActionResult<CancellationResponse>> Cancel(Guid bookingId, CancellationToken cancellationToken)
     {
-        var booking = await _bookings.CancelBookingAsync(bookingId, cancellationToken);
-        return Ok(BookingResponse.From(booking));
+        var outcome = await _bookings.CancelBookingAsync(bookingId, cancellationToken);
+
+        return Ok(new CancellationResponse(
+            BookingResponse.From(outcome.Booking),
+            outcome.Fee,
+            outcome.Refund));
     }
 }
 
-public sealed record SessionEventRequest(DetectionMethod Method = DetectionMethod.AppConfirmed, DateTimeOffset? At = null);
+public sealed record CancellationResponse(BookingResponse Booking, decimal Fee, decimal Refund);
+
+/// <param name="QrToken">The code from the sticker at the space, for a Tier 2 scan.</param>
+/// <param name="Latitude">Where the phone thinks it is, corroborating the scan.</param>
+public sealed record SessionEventRequest(
+    DetectionMethod Method = DetectionMethod.AppConfirmed,
+    DateTimeOffset? At = null,
+    string? QrToken = null,
+    double? Latitude = null,
+    double? Longitude = null)
+{
+    /// <summary>
+    /// The proof, when all three parts are present. A partial scan is left as null so the service
+    /// gives one clear answer about what is missing rather than the model binder rejecting the
+    /// request over a field a Tier 1 caller never sends.
+    /// </summary>
+    public CheckInProof? Proof() =>
+        QrToken is { Length: > 0 } token && Latitude is { } latitude && Longitude is { } longitude
+            ? new CheckInProof(token, latitude, longitude)
+            : null;
+}
 
 public sealed record BookingResponse(
     Guid Id,

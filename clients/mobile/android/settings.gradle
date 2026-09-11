@@ -1,0 +1,33 @@
+pluginManagement {
+    def flutterSdkPath = {
+        def properties = new Properties()
+        file("local.properties").withInputStream { properties.load(it) }
+        def flutterSdkPath = properties.getProperty("flutter.sdk")
+        assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+        return flutterSdkPath
+    }()
+
+    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+    id "com.android.application" version "7.3.0" apply false
+    // Kotlin alone moves off the template's 1.7.10, which flutter_secure_storage 9.x refuses to
+    // compile against. AGP and Gradle stay where `flutter create` put them: raising those breaks
+    // how the Flutter Gradle plugin configures plugin subprojects, and geolocator — which reads
+    // flutter.compileSdkVersion — then fails to configure at all.
+    id "org.jetbrains.kotlin.android" version "1.9.22" apply false
+    // Declared, never applied here. app/build.gradle applies it only when google-services.json is
+    // present, so a checkout without a Firebase project still builds and runs — it just does not
+    // push. 4.3.15 rather than the current 4.4.x, which wants a newer AGP than the 7.3.0 above.
+    id "com.google.gms.google-services" version "4.3.15" apply false
+}
+
+include ":app"

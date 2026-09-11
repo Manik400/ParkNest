@@ -21,7 +21,12 @@ import { AuthService } from '../core/auth.service';
           <a routerLink="/listings" routerLinkActive="active">My listings</a>
           <a routerLink="/bookings" routerLinkActive="active">Bookings</a>
           <a routerLink="/wallet" routerLinkActive="active">Wallet</a>
+          <a routerLink="/disputes" routerLinkActive="active">
+            {{ auth.isAdmin() ? 'Disputes' : 'My disputes' }}
+          </a>
           @if (auth.isAdmin()) {
+            <a routerLink="/kyc" routerLinkActive="active">Identity checks</a>
+            <a routerLink="/payouts" routerLinkActive="active">Payouts</a>
             <a routerLink="/pricing" routerLinkActive="active">Pricing bands</a>
           }
         </nav>

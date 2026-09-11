@@ -2,15 +2,14 @@
 
 *What we're solving, how we're solving it, and what actually exists in the repo today.*
 
-Last verified against the codebase on **2026-08-04** (branch `feat/availability-and-queries`,
-125 tests green).
+Last verified against the codebase on **2026-08-19** (branch `feat/hardening-and-completion`,
+169 tests green).
 
 This is the orientation document. Deeper detail lives in:
 
 - [PRD.md](PRD.md) — the full product spec
 - [ledger-model.md](ledger-model.md) — the money rules, in detail
-- [architecture.md](architecture.md) — layering (note: its "what is deliberately missing" section
-  is stale, auth has since landed)
+- [architecture.md](architecture.md) — layering and what is deliberately not built yet
 - [adr/](adr/) — the five decisions we don't want to re-litigate
 
 ---
@@ -64,6 +63,21 @@ The host still receives every credit that could actually be collected. The platf
 renter's future access instead of chasing cash from someone who has already driven away. That
 tradeoff — *degrade the debtor's access, don't pursue the debt* — is the whole design.
 
+### The case the credit model does not answer
+
+The same renter's car is still in the bay when the next renter's slot begins. The credits handle
+the money and settle nothing else: the second renter is driving to a space that has somebody else's
+car in it, and no balance fixes that.
+
+So the overstay meter looks, on every sweep, for a booking on the same space due to start shortly,
+flags it once, and tells all three parties — move the car, stop driving, go and look. The flag also
+makes that booking free to cancel however late it is, because a late-cancellation fee compensates a
+host for notice too short to re-let a slot, and there was no slot to re-let.
+
+What remains open is compensation beyond the refund: whether the turned-away renter gets anything
+on top of their hold back, and who funds it. Each answer is a different ledger shape, and the half
+that is right under all of them shipped without waiting for the decision.
+
 ### Compliance caveat
 
 A credit balance that converts back to cash resembles a Prepaid Payment Instrument under RBI rules.
@@ -76,8 +90,8 @@ and PRD §16. Get real legal advice before recharge and payout volume scales.
 ## 3. What we have built
 
 Phase 0 is functionally complete: ledger, pricing, booking lifecycle, listings with geo-search,
-authentication, availability enforcement, vehicles, payment-order scaffolding, and an Angular
-admin console running against all of it.
+authentication, availability enforcement, vehicles, credit purchase, disputes, payouts, and an
+Angular admin console running against all of it.
 
 | Area | State |
 |---|---|
@@ -86,14 +100,22 @@ admin console running against all of it.
 | Booking lifecycle + Tier 1 app-confirmed detection | Built |
 | Listings + PostGIS geo-search | Built |
 | Auth / identity (phone + OTP → JWT) | Built, every endpoint authorised, deny-by-default |
+| Sessions | Refresh tokens with rotation and replay detection; signing out revokes server-side |
+| Rate limiting | Per phone number in the service, per caller at the edge, on OTP and the webhook |
 | Availability windows and blackouts | Built, enforced at quote and at booking, per-space time zone |
 | Vehicles | Built |
 | Payments / credit purchase | Built. Sandbox gateway runs the whole flow locally; Razorpay wired for real money |
-| Angular admin/host console | Login, dashboard, listings, bookings, wallet, pricing bands |
+| Disputes | Built. Raise, review, uphold or reject; upholding posts a compensating transaction |
+| Payouts | Built. Cash-out request, and recording the transfer as paid or failed with a refund |
+| Angular admin/host console | Login, dashboard, listings, bookings, wallet, disputes, payouts, pricing bands |
 | RabbitMQ, SignalR, background overstay meter | Not started (Phase 1) |
 | Flutter renter app | Not started |
 
-**125 unit tests, all green, ~4s.** They run on in-memory SQLite, so CI needs no container.
+**169 unit tests, all green, ~4s.** They run on in-memory SQLite, so CI needs no container.
+
+A second suite covers geo-search against a real PostGIS. It skips unless `PARKNEST_TEST_CONNECTION`
+is set, and CI sets it in the job that already runs a PostGIS container — the geo path is the one
+thing SQLite fundamentally cannot exercise.
 
 ### Structure
 
@@ -105,6 +127,7 @@ src/
   ParkNest.Api/             Controllers and error→HTTP mapping. No business logic.
 tests/
   ParkNest.UnitTests/       Service-level tests on in-memory SQLite.
+  ParkNest.IntegrationTests/ Geo-search against a real PostGIS. Skips without a database.
 clients/
   admin/                    Angular 18 admin and host console.
 ```
@@ -415,10 +438,10 @@ city pricing bands (read constantly, written rarely by an admin) and hot geo-sea
 with defaults — no `EnableRetryOnFailure`, no explicit pool sizing, no `AddDbContextPool`. Fine for
 one instance; needs deliberate tuning before multiple API instances share one Postgres.
 
-**8. Overstay is billed in one shot at checkout.** PRD §10.3 wants incremental debits *during* the
-session with a push notification per increment. That needs the background metering job and SignalR
-(Phase 1). Relatedly, `OverstayGraceMinutes` is configured but not enforced — there is no running
-timer to enforce it against.
+**8. Nothing pushes to a handset that is not connected.** The overstay meter now bills during the
+session and both SignalR and FCM carry each increment, which is what PRD §10.3 asks for — but the
+Flutter app has no Firebase wiring, so in practice a renter still learns about an over-run when
+they next open the app. The API side of push is built; the missing piece is a Firebase project.
 
 ### Where this goes
 
@@ -445,7 +468,7 @@ dotnet run --project src/ParkNest.Api          # http://localhost:5109, Swagger 
 
 cd clients/admin && npm install && npm start   # http://localhost:4200
 
-dotnet test                          # 125 tests, no Docker required
+dotnet test tests/ParkNest.UnitTests  # 169 tests, no Docker required
 ```
 
 Payments run on the sandbox gateway in Development, so buying credits works out of the box: press

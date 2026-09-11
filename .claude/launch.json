@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "parknest-api",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/ParkNest.Api", "--launch-profile", "https"],
+      "port": 7139,
+      "url": "https://localhost:7139"
+    },
+    {
+      "name": "parknest-admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "clients/admin", "start"],
+      "port": 4200
+    }
+  ]
+}

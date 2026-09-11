@@ -6,19 +6,28 @@ import { environment } from '../../environments/environment';
 import {
   BookingDetail,
   BookingQuote,
-  CreateListingRequest,
-  NearbySpace,
-  Vehicle,
   BookingStatus,
   BookingSummary,
+  CancellationTerms,
   CityPricingConfig,
+  CreateListingRequest,
+  Dispute,
+  KycStatus,
+  KycSubmission,
   LedgerEntrySummary,
   ListingDetail,
   ListingSummary,
+  NearbySpace,
   PaymentOrderView,
+  Payout,
+  PayoutStatus,
   Reconciliation,
+  Reputation,
   StartPaymentResult,
+  PricingBandChange,
+  SetBandActiveRequest,
   UpsertBandRequest,
+  Vehicle,
   Wallet,
 } from './models';
 
@@ -64,7 +73,11 @@ export class ApiService {
    * signed webhook confirms the money actually arrived.
    */
   startPayment(amount: number): Observable<StartPaymentResult> {
-    return this.http.post<StartPaymentResult>(`${this.base}/api/payments/orders`, { amount });
+    // 'admin' tells the API to send the browser back to this site's wallet page after checkout.
+    return this.http.post<StartPaymentResult>(`${this.base}/api/payments/orders`, {
+      amount,
+      returnTo: 'admin',
+    });
   }
 
   /**
@@ -136,6 +149,13 @@ export class ApiService {
     }>(`${this.base}/api/bookings/${bookingId}/end`, { method: 'AppConfirmed' });
   }
 
+  /** What cancelling would cost, without cancelling. */
+  cancellationTerms(bookingId: string): Observable<CancellationTerms> {
+    return this.http.get<CancellationTerms>(
+      `${this.base}/api/bookings/${bookingId}/cancellation`,
+    );
+  }
+
   cancelBooking(bookingId: string): Observable<unknown> {
     return this.http.post(`${this.base}/api/bookings/${bookingId}/cancel`, {});
   }
@@ -199,5 +219,114 @@ export class ApiService {
 
   upsertBand(request: UpsertBandRequest): Observable<CityPricingConfig> {
     return this.http.put<CityPricingConfig>(`${this.base}/api/admin/pricing`, request);
+  }
+
+  /** Switches a band on or off without disturbing its numbers, so the history stays readable. */
+  setBandActive(bandId: string, request: SetBandActiveRequest): Observable<CityPricingConfig> {
+    return this.http.post<CityPricingConfig>(
+      `${this.base}/api/admin/pricing/${bandId}/active`,
+      request,
+    );
+  }
+
+  /** Recorded edits, newest first. Whole platform unless a band is named. */
+  bandHistory(bandId?: string, limit = 100): Observable<PricingBandChange[]> {
+    let params = new HttpParams().set('limit', limit);
+    if (bandId) {
+      params = params.set('bandId', bandId);
+    }
+
+    return this.http.get<PricingBandChange[]>(`${this.base}/api/admin/pricing/history`, { params });
+  }
+
+  // --- Disputes -------------------------------------------------------------
+
+  myDisputes(onlyOpen = false): Observable<Dispute[]> {
+    return this.http.get<Dispute[]>(`${this.base}/api/disputes/me`, {
+      params: new HttpParams().set('onlyOpen', onlyOpen),
+    });
+  }
+
+  raiseDispute(bookingId: string, reason: string): Observable<Dispute> {
+    return this.http.post<Dispute>(`${this.base}/api/disputes`, { bookingId, reason });
+  }
+
+  // --- Admin: disputes ------------------------------------------------------
+
+  adminDisputes(onlyOpen = true): Observable<Dispute[]> {
+    return this.http.get<Dispute[]>(`${this.base}/api/admin/disputes`, {
+      params: new HttpParams().set('onlyOpen', onlyOpen),
+    });
+  }
+
+  reviewDispute(disputeId: string): Observable<Dispute> {
+    return this.http.post<Dispute>(`${this.base}/api/admin/disputes/${disputeId}/review`, {});
+  }
+
+  /** Upholds the dispute. Any refund is posted as a new compensating transaction. */
+  resolveDispute(
+    disputeId: string,
+    resolution: string,
+    refundToRenter: number,
+    chargedToPlatform: boolean,
+  ): Observable<Dispute> {
+    return this.http.post<Dispute>(`${this.base}/api/admin/disputes/${disputeId}/resolve`, {
+      resolution,
+      refundToRenter,
+      chargedToPlatform,
+    });
+  }
+
+  rejectDispute(disputeId: string, resolution: string): Observable<Dispute> {
+    return this.http.post<Dispute>(`${this.base}/api/admin/disputes/${disputeId}/reject`, {
+      resolution,
+    });
+  }
+
+  // --- Reputation -----------------------------------------------------------
+
+  /** A user's ratings and trust score. Any signed-in caller may read one. */
+  reputation(userId: string): Observable<Reputation> {
+    return this.http.get<Reputation>(`${this.base}/api/ratings/users/${userId}`);
+  }
+
+  // --- Admin: identity verification -----------------------------------------
+
+  /** The review queue. Pending by default; a status reads history instead. */
+  kycQueue(status?: KycStatus): Observable<KycSubmission[]> {
+    return this.http.get<KycSubmission[]>(`${this.base}/api/admin/kyc`, {
+      params: status ? new HttpParams().set('status', status) : undefined,
+    });
+  }
+
+  /** Approves the submission, which is what opens cash-out for that host. */
+  verifyKyc(submissionId: string): Observable<KycSubmission> {
+    return this.http.post<KycSubmission>(`${this.base}/api/admin/kyc/${submissionId}/verify`, {});
+  }
+
+  /** Refuses it. The reason is shown to the host, so it has to be actionable. */
+  rejectKyc(submissionId: string, reason: string): Observable<KycSubmission> {
+    return this.http.post<KycSubmission>(`${this.base}/api/admin/kyc/${submissionId}/reject`, {
+      reason,
+    });
+  }
+
+  // --- Admin: payouts -------------------------------------------------------
+
+  payouts(status?: PayoutStatus): Observable<Payout[]> {
+    return this.http.get<Payout[]>(`${this.base}/api/admin/payouts`, {
+      params: status ? new HttpParams().set('status', status) : undefined,
+    });
+  }
+
+  completePayout(payoutId: string, providerReference: string | null): Observable<Payout> {
+    return this.http.post<Payout>(`${this.base}/api/admin/payouts/${payoutId}/complete`, {
+      providerReference,
+    });
+  }
+
+  /** Records a rejected transfer. The credits go back to the host via a compensating Refund. */
+  failPayout(payoutId: string, reason: string): Observable<Payout> {
+    return this.http.post<Payout>(`${this.base}/api/admin/payouts/${payoutId}/fail`, { reason });
   }
 }

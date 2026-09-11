@@ -28,6 +28,8 @@ export interface AuthResult {
   userId: string;
   role: UserRole;
   isNewUser: boolean;
+  refreshToken: string;
+  refreshExpiresAt: string;
 }
 
 export interface Wallet {
@@ -70,6 +72,8 @@ export interface BookingSummary {
   holdAmount: number;
   settledAmount: number;
   status: BookingStatus;
+  /** The previous car had not left when this slot came due. Cancelling it is free. */
+  slotBlocked: boolean;
 }
 
 export interface BookingDetail {
@@ -86,6 +90,9 @@ export interface BookingDetail {
   shortfallAmount: number;
   startDetectionMethod: string | null;
   endDetectionMethod: string | null;
+  /** The over-running session that was still in the space, if there was one. */
+  blockedByBookingId: string | null;
+  blockedAt: string | null;
   ledgerEntries: LedgerEntrySummary[];
 }
 
@@ -169,14 +176,14 @@ export interface StartPaymentResult {
   orderId: string;
   providerOrderId: string;
   amount: number;
-  /** Opaque JSON the gateway's checkout SDK consumes. See CheckoutPayload for the shape we read. */
+  /** JSON describing the checkout. See CheckoutPayload for the shape we read. */
   checkoutPayload: string;
 }
 
 /**
- * What we parse out of `checkoutPayload`. The sandbox gateway hands us a URL to redirect to; a
- * real aggregator hands us keys for its JS SDK instead, so `checkout_url` is what tells the two
- * apart at runtime.
+ * What we parse out of `checkoutPayload`. Every gateway sends a `checkout_url` to open: the
+ * sandbox's page, the provider's hosted page, or an API page that opens the provider's sheet. So
+ * the client never needs a provider SDK. A relative URL is relative to the API.
  */
 export interface CheckoutPayload {
   provider: string;
@@ -219,6 +226,40 @@ export interface UpsertBandRequest {
   maxPricePerHour: number;
   overstayMultiplier: number;
   isActive: boolean;
+  /** Free text, asked for on every edit — it is the part the audit row cannot reconstruct. */
+  reason: string | null;
+}
+
+export type PricingBandChangeKind = 'Created' | 'Updated' | 'Deactivated' | 'Reactivated';
+
+/**
+ * One recorded edit to a band. A band changes without a deploy and therefore without a commit,
+ * so this is the only record of how a city's price ceiling got where it is.
+ */
+export interface PricingBandChange {
+  id: string;
+  cityPricingConfigId: string;
+  city: string;
+  zone: string | null;
+  vehicleType: VehicleType;
+  kind: PricingBandChangeKind;
+  /** Null on a Created row — there was no band before it. */
+  previousMinPricePerHour: number | null;
+  previousMaxPricePerHour: number | null;
+  previousOverstayMultiplier: number | null;
+  previousIsActive: boolean | null;
+  minPricePerHour: number;
+  maxPricePerHour: number;
+  overstayMultiplier: number;
+  isActive: boolean;
+  changedByUserId: string;
+  reason: string | null;
+  changedAt: string;
+}
+
+export interface SetBandActiveRequest {
+  isActive: boolean;
+  reason: string | null;
 }
 
 /** RFC 7807 problem details, which is what the API returns for every non-2xx. */
@@ -238,3 +279,113 @@ export const DAY_NAMES = [
   'Friday',
   'Saturday',
 ] as const;
+
+export type DisputeStatus = 'Open' | 'UnderReview' | 'Resolved' | 'Rejected';
+
+export interface DisputeEvidence {
+  id: string;
+  url: string;
+  note: string | null;
+}
+
+export interface Dispute {
+  disputeId: string;
+  bookingId: string;
+  raisedByUserId: string;
+  renterId: string;
+  hostId: string;
+  reason: string;
+  status: DisputeStatus;
+  resolution: string | null;
+  /** Credits actually moved when the dispute was upheld. Null when it was settled without money. */
+  adjustmentAmount: number | null;
+  adjustmentTransactionId: string | null;
+  evidence: DisputeEvidence[];
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export type PayoutStatus = 'Requested' | 'Processing' | 'Paid' | 'Failed';
+
+export interface Payout {
+  payoutId: string;
+  hostId: string;
+  /** Null for a host who signed up by email. */
+  hostPhone: string | null;
+  hostName: string;
+  amount: number;
+  status: PayoutStatus;
+  providerReference: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+/** What cancelling a booking would cost right now. The policy lives on the server. */
+export interface CancellationTerms {
+  holdAmount: number;
+  fee: number;
+  refund: number;
+  isFree: boolean;
+  /** After this moment cancelling starts costing something. */
+  freeUntil: string;
+  /**
+   * Free because the space was still occupied, rather than because there is time in hand. The
+   * distinction is the whole message: "you got lucky" and "we could not give you the space" read
+   * very differently to somebody standing next to somebody else's car.
+   */
+  slotBlocked: boolean;
+}
+
+export type KycStatus = 'NotStarted' | 'Pending' | 'Verified' | 'Rejected';
+
+/**
+ * One attempt by a host to prove who they are.
+ *
+ * The document number is not here and never will be: the server keeps the last four characters
+ * for a human to match against the photograph, and a keyed hash for spotting one document used by
+ * two accounts. `previousRejections` and `otherAccountsWithThisDocument` are the two things a
+ * reviewer cannot see from a single row and needs before approving money out.
+ */
+export interface KycSubmission {
+  id: string;
+  userId: string;
+  legalName: string;
+  documentType: string;
+  documentLast4: string;
+  documentPhotoUrl: string | null;
+  payoutAccountLast4: string | null;
+  status: KycStatus;
+  submittedAt: string;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+  userPhone: string | null;
+  previousRejections: number;
+  otherAccountsWithThisDocument: number;
+}
+
+export interface Rating {
+  id: string;
+  bookingId: string;
+  toUserId: string;
+  score: number;
+  comment: string | null;
+  createdAt: string;
+}
+
+/**
+ * What a user's counterparties have said about them.
+ *
+ * `averageScore` is null for somebody nobody has rated, and must stay null on the way to a screen:
+ * rendering it as 0.0 would tell a reviewer that a brand-new host is terrible, which is the
+ * opposite of what no ratings means. `trustScore` is the different thing the platform acts on —
+ * it starts from good faith and moves on conduct.
+ */
+export interface Reputation {
+  userId: string;
+  trustScore: number;
+  averageScore: number | null;
+  ratingCount: number;
+  recent: Rating[];
+}
+

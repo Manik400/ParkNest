@@ -25,11 +25,13 @@ public sealed class SandboxCheckoutController : ControllerBase
 {
     private readonly IPaymentGateway _gateway;
     private readonly IParkNestDbContext _db;
+    private readonly PaymentUrls _urls;
 
-    public SandboxCheckoutController(IPaymentGateway gateway, IParkNestDbContext db)
+    public SandboxCheckoutController(IPaymentGateway gateway, IParkNestDbContext db, PaymentUrls urls)
     {
         _gateway = gateway;
         _db = db;
+        _urls = urls;
     }
 
     /// <summary>Renders the fake payment sheet for an order.</summary>
@@ -63,7 +65,9 @@ public sealed class SandboxCheckoutController : ControllerBase
             alreadySettled: order.IsSettled,
             captured,
             failed,
-            sandbox.ReturnUrl);
+            // The same return endpoint a real provider would send the browser to, so the sandbox
+            // exercises the whole trip: return → reconcile → the client that started the payment.
+            _urls.ReturnUrl(order.Id));
 
         return Content(html, "text/html; charset=utf-8");
     }
@@ -173,7 +177,6 @@ public sealed class SandboxCheckoutController : ControllerBase
                 const FAILED   = { body: {{Js(failed.Body)}},   signature: {{Js(failed.Signature)}} };
                 const HEADER   = {{Js(captured.HeaderName)}};
                 const RETURN   = {{Js(returnUrl)}};
-                const ORDER_ID = {{Js(orderId.ToString())}};
 
                 const status = document.getElementById('status');
 
@@ -203,8 +206,7 @@ public sealed class SandboxCheckoutController : ControllerBase
                     const result = await response.json();
                     show('Accepted: ' + result.message + ' Returning…', false);
 
-                    const separator = RETURN.includes('?') ? '&' : '?';
-                    setTimeout(() => { window.location.href = RETURN + separator + 'orderId=' + ORDER_ID; }, 900);
+                    setTimeout(() => { window.location.href = RETURN; }, 900);
                   } catch (err) {
                     show(err.message, true);
                     document.querySelectorAll('button').forEach(b => b.disabled = false);

@@ -24,31 +24,28 @@ namespace ParkNest.Infrastructure.Payments;
 /// </summary>
 public sealed class SandboxPaymentGateway : IPaymentGateway
 {
-    private readonly PaymentOptions _options;
+    public const string SignatureHeaderName = "X-ParkNest-Sandbox-Signature";
+
     private readonly byte[] _secret;
 
     public SandboxPaymentGateway(IOptions<PaymentOptions> options)
     {
-        _options = options.Value;
+        var configured = options.Value.Sandbox.WebhookSecret;
 
         // A configured secret makes signatures stable across restarts, which is what you want when
         // replaying a captured webhook body from a log. Without one, a per-process random key is
         // the safer default: nothing to leak into source control, and an abandoned checkout page
         // stops being replayable the moment the server restarts.
-        _secret = string.IsNullOrWhiteSpace(_options.WebhookSecret)
+        _secret = string.IsNullOrWhiteSpace(configured)
             ? RandomNumberGenerator.GetBytes(32)
-            : Encoding.UTF8.GetBytes(_options.WebhookSecret);
+            : Encoding.UTF8.GetBytes(configured);
     }
 
     public string Name => "Sandbox";
 
-    public string SignatureHeader => "X-ParkNest-Sandbox-Signature";
+    public bool WebhookIsAuthoritative => true;
 
-    public Task<GatewayOrder> CreateOrderAsync(
-        Guid orderId,
-        decimal amount,
-        string currency,
-        CancellationToken cancellationToken = default)
+    public Task<GatewayOrder> CreateOrderAsync(GatewayOrderRequest request, CancellationToken cancellationToken = default)
     {
         // Prefixed and random, like a real provider id, so nothing downstream can quietly come to
         // depend on it being our own order id in disguise.
@@ -60,8 +57,8 @@ public sealed class SandboxPaymentGateway : IPaymentGateway
             order_id = providerOrderId,
             // Relative, so it works unchanged whichever host or port the API is bound to.
             checkout_url = $"/sandbox/checkout/{providerOrderId}",
-            amount = Money.Round(amount),
-            currency,
+            amount = Money.Round(request.Amount),
+            currency = request.Currency,
             name = "ParkNest",
             description = "Parking credits"
         });
@@ -69,14 +66,16 @@ public sealed class SandboxPaymentGateway : IPaymentGateway
         return Task.FromResult(new GatewayOrder(providerOrderId, checkout));
     }
 
-    public bool VerifyWebhookSignature(string rawBody, string signature)
+    public bool VerifyWebhook(WebhookRequest request)
     {
+        var signature = request.Header(SignatureHeaderName);
+
         if (string.IsNullOrEmpty(signature))
         {
             return false;
         }
 
-        var expected = Sign(rawBody);
+        var expected = Sign(request.RawBody);
 
         // Fixed-time compare, same as the real gateway. The sandbox is where this code gets
         // exercised most, so it must not be the version that teaches the wrong habit.
@@ -85,7 +84,7 @@ public sealed class SandboxPaymentGateway : IPaymentGateway
             Encoding.UTF8.GetBytes(signature.Trim().ToLowerInvariant()));
     }
 
-    public WebhookEvent ParseWebhook(string rawBody)
+    public GatewayOutcome ParseWebhook(string rawBody)
     {
         using var document = JsonDocument.Parse(rawBody);
         var root = document.RootElement;
@@ -105,17 +104,29 @@ public sealed class SandboxPaymentGateway : IPaymentGateway
             throw new DomainException("The webhook payload carried no order id.");
         }
 
-        // Only a capture is money received — "authorized" funds can still fall through. Mirrored
-        // from Razorpay on purpose, so a test written against the sandbox proves something about
-        // the real thing.
-        var succeeded = eventName == "payment.captured";
+        // Only a capture is money received — "authorized" funds can still fall through, so they
+        // are nothing to act on yet. Mirrored from Razorpay on purpose, so a test written against
+        // the sandbox proves something about the real thing.
+        var kind = eventName switch
+        {
+            "payment.captured" => GatewayOutcomeKind.Paid,
+            "payment.failed" => GatewayOutcomeKind.Failed,
+            _ => GatewayOutcomeKind.Pending
+        };
 
-        var failureReason = entity.TryGetProperty("error_description", out var reason)
-            ? reason.GetString()
-            : eventName;
+        var failureReason = kind == GatewayOutcomeKind.Failed
+            ? entity.TryGetProperty("error_description", out var reason) ? reason.GetString() : eventName
+            : null;
 
-        return new WebhookEvent(providerOrderId, providerPaymentId, succeeded, succeeded ? null : failureReason);
+        return new GatewayOutcome(providerOrderId, kind, providerPaymentId, failureReason);
     }
+
+    /// <summary>
+    /// Nothing to ask: the sandbox's only record of a payment is the callback its own checkout page
+    /// sends. The return trip and the sweep find nothing here, which is the truth.
+    /// </summary>
+    public Task<GatewayOutcome?> QueryOrderAsync(string providerOrderId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<GatewayOutcome?>(null);
 
     /// <summary>
     /// Builds the callback a real gateway would send, signed with the sandbox secret. This is the
@@ -146,11 +157,8 @@ public sealed class SandboxPaymentGateway : IPaymentGateway
         // Sign the exact bytes that will be transmitted. Re-serialising anywhere between here and
         // the wire would change the whitespace and invalidate the signature — which is precisely
         // the failure this arrangement is meant to make impossible to introduce by accident.
-        return new SignedWebhook(body, Sign(body), SignatureHeader);
+        return new SignedWebhook(body, Sign(body), SignatureHeaderName);
     }
-
-    /// <summary>Where to send the browser once the sandbox checkout is done.</summary>
-    public string ReturnUrl => _options.SandboxReturnUrl;
 
     private string Sign(string body)
     {

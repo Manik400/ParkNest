@@ -1,0 +1,25 @@
+# What Prometheus scrapes locally.
+#
+# The API is not a compose service — it runs from the IDE or `dotnet run` on the host — so the
+# target is host.docker.internal rather than a container name. On Linux that name needs the
+# extra_hosts entry the compose file already adds.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# Evaluating a rule and telling somebody are two different jobs. This is the second one.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: parknest-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:5109"]
+        labels:
+          environment: local

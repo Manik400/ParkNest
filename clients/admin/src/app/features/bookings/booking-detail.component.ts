@@ -1,15 +1,16 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { Component, Input, OnInit, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
-import { BookingDetail } from '../../core/models';
+import { BookingDetail, CancellationTerms } from '../../core/models';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 
 @Component({
   selector: 'app-booking-detail',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, RouterLink, StatusPillComponent],
+  imports: [CurrencyPipe, DatePipe, RouterLink, StatusPillComponent, FormsModule],
   template: `
     <div class="stack">
       <a routerLink="/bookings">← Back to bookings</a>
@@ -39,7 +40,25 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
                 I have parked
               </button>
               <button type="button" [disabled]="busy()" (click)="cancel()">Cancel booking</button>
-              <span class="muted small">Cancelling returns the whole hold.</span>
+              @if (cancellation(); as terms) {
+                <span class="muted small">
+                  @if (terms.slotBlocked) {
+                    <!-- Free for a different reason, and the reason is the message. A renter told
+                         only "this is free" will assume good timing rather than that the space
+                         they are driving to has somebody else's car in it. -->
+                    The space was still occupied when this slot came due. Cancelling returns the
+                    whole hold, however late it is.
+                  } @else if (terms.isFree) {
+                    Cancelling now returns the whole hold.
+                  } @else {
+                    <!-- The fee is a server-side policy; showing the figure it will actually
+                         charge beats restating a rule that can change without a deploy. -->
+                    Cancelling now costs
+                    {{ terms.fee | currency: 'INR' : 'symbol' : '1.2-2' }} — the host cannot re-let
+                    the slot this close to the start.
+                  }
+                </span>
+              }
             } @else {
               <button class="primary" type="button" [disabled]="busy()" (click)="checkOut()">
                 I am leaving
@@ -58,6 +77,20 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
             Settled {{ result.billedMinutes }} minutes for
             {{ result.totalCharged | currency: 'INR' : 'symbol' : '1.2-2' }}.
             Released {{ result.releasedToRenter | currency: 'INR' : 'symbol' : '1.2-2' }} back to you.
+          </div>
+        }
+
+        <!-- The slot could not be delivered: the previous session had not ended when this one was
+             due to start. Called out above the figures because it changes what the renter may do
+             — cancelling is free from here on — and because the money below looks unremarkable. -->
+        @if (booking.blockedByBookingId) {
+          <div class="banner banner--error" role="alert">
+            <strong>The space was still occupied when this slot came due.</strong>
+            Noticed {{ booking.blockedAt | date: 'medium' }}. The previous session over-ran into
+            this booking, so cancelling it costs nothing whatever the notice.
+            <a [routerLink]="['/bookings', booking.blockedByBookingId]">
+              See the session that over-ran
+            </a>
           </div>
         }
 
@@ -126,6 +159,46 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
             </div>
           </dl>
         </section>
+
+        <!-- Only once something has actually happened: a booking still in Held has nothing to
+             dispute and should be cancelled instead, which is what the API says too. -->
+        @if (booking.summary.status !== 'Held' && booking.summary.status !== 'Cancelled') {
+          <section class="card stack">
+            <h2>Something wrong?</h2>
+
+            @if (disputeRaised()) {
+              <div class="banner banner--info" role="status">
+                Dispute raised. You can follow it under
+                <a routerLink="/disputes">My disputes</a>.
+              </div>
+            } @else {
+              <p class="muted">
+                Raise a dispute and an operator will review it. Any refund is posted as a new
+                transaction — nothing on this page is rewritten.
+              </p>
+
+              <div>
+                <label for="disputeReason">What went wrong</label>
+                <textarea
+                  id="disputeReason"
+                  name="disputeReason"
+                  rows="3"
+                  [(ngModel)]="disputeReason"
+                ></textarea>
+              </div>
+
+              <div class="row actions">
+                <button
+                  type="button"
+                  [disabled]="busy() || !disputeReason.trim()"
+                  (click)="raiseDispute()"
+                >
+                  Raise a dispute
+                </button>
+              </div>
+            }
+          </section>
+        }
 
         <section class="card stack">
           <div>
@@ -223,8 +296,31 @@ export class BookingDetailComponent implements OnInit {
     releasedToRenter: number;
   } | null>(null);
 
+  readonly disputeRaised = signal(false);
+
+  disputeReason = '';
+
+  readonly cancellation = signal<CancellationTerms | null>(null);
+
   ngOnInit(): void {
     this.load();
+  }
+
+  raiseDispute(): void {
+    this.busy.set(true);
+    this.error.set(null);
+
+    this.api.raiseDispute(this.bookingId, this.disputeReason.trim()).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.disputeRaised.set(true);
+        this.disputeReason = '';
+      },
+      error: (err: Error) => {
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
+    });
   }
 
   checkIn(): void {
@@ -273,6 +369,18 @@ export class BookingDetailComponent implements OnInit {
       next: (detail) => {
         this.detail.set(detail);
         this.loading.set(false);
+
+        // Only a booking that has not started can be cancelled, so the terms are only worth
+        // fetching for one — and a 400 from asking about any other would surface as an error
+        // banner on a page where nothing is wrong.
+        if (detail.summary.status === 'Held') {
+          this.api.cancellationTerms(this.bookingId).subscribe({
+            next: (terms) => this.cancellation.set(terms),
+            // Silent: the page is fine without it, and the confirmation is advisory. The charge
+            // itself is decided server-side when Cancel is actually pressed.
+            error: () => this.cancellation.set(null),
+          });
+        }
       },
       error: (err: Error) => {
         this.error.set(err.message);

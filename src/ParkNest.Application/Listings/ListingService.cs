@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using ParkNest.Application.Abstractions;
 using ParkNest.Application.Pricing;
@@ -14,7 +15,22 @@ public interface IListingService
     Task<ParkingSpace> PublishAsync(Guid spaceId, CancellationToken cancellationToken = default);
 
     Task<ParkingSpace> SetStatusAsync(Guid spaceId, SpaceStatus status, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The space's check-in code, minting one on first ask. Host only — it is what goes on the
+    /// printed sticker, and a code a renter could fetch from the API would prove nothing about
+    /// them having been anywhere.
+    /// </summary>
+    Task<CheckInCode> GetOrCreateCheckInCodeAsync(Guid spaceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Issues a new code and retires the old one. For a sticker that has been photographed, or
+    /// peeled off and taken away.
+    /// </summary>
+    Task<CheckInCode> RotateCheckInCodeAsync(Guid spaceId, CancellationToken cancellationToken = default);
 }
+
+public sealed record CheckInCode(Guid SpaceId, string Token);
 
 /// <summary>The host is always the authenticated caller — see <see cref="CreateBookingRequest"/>
 /// for the same reasoning about not accepting a caller-supplied user id.</summary>
@@ -43,13 +59,20 @@ public sealed class ListingService : IListingService
     private readonly IPricingService _pricing;
     private readonly IClock _clock;
     private readonly ICurrentUser _currentUser;
+    private readonly ISpaceSearchCacheInvalidator _searchCache;
 
-    public ListingService(IParkNestDbContext db, IPricingService pricing, IClock clock, ICurrentUser currentUser)
+    public ListingService(
+        IParkNestDbContext db,
+        IPricingService pricing,
+        IClock clock,
+        ICurrentUser currentUser,
+        ISpaceSearchCacheInvalidator searchCache)
     {
         _db = db;
         _pricing = pricing;
         _clock = clock;
         _currentUser = currentUser;
+        _searchCache = searchCache;
     }
 
     public async Task<ParkingSpace> CreateDraftAsync(CreateListingRequest request, CancellationToken cancellationToken = default)
@@ -131,6 +154,12 @@ public sealed class ListingService : IListingService
         space.Status = SpaceStatus.Published;
         await _db.SaveChangesAsync(cancellationToken);
 
+        // A space that has just appeared is invisible to any renter holding a cached search of
+        // that area until this runs. After the commit, not before: invalidating first would let a
+        // search in the gap re-cache the old answer, and a failed save would have retired the
+        // cache for nothing.
+        await _searchCache.InvalidateAsync(cancellationToken);
+
         return space;
     }
 
@@ -145,8 +174,50 @@ public sealed class ListingService : IListingService
         space.Status = status;
         await _db.SaveChangesAsync(cancellationToken);
 
+        // The unpublish direction matters more than the publish one. A renter sent to a space the
+        // host has withdrawn arrives at a locked gate, which is worse than not finding it at all.
+        await _searchCache.InvalidateAsync(cancellationToken);
+
         return space;
     }
+
+    public async Task<CheckInCode> GetOrCreateCheckInCodeAsync(
+        Guid spaceId,
+        CancellationToken cancellationToken = default)
+    {
+        var space = await LoadAsync(spaceId, cancellationToken);
+
+        // Minted on demand rather than at publish, so every listing that already exists keeps
+        // working on Tier 1 and opts in when the host asks for a sticker.
+        if (string.IsNullOrEmpty(space.CheckInToken))
+        {
+            space.CheckInToken = GenerateToken();
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return new CheckInCode(space.Id, space.CheckInToken);
+    }
+
+    public async Task<CheckInCode> RotateCheckInCodeAsync(
+        Guid spaceId,
+        CancellationToken cancellationToken = default)
+    {
+        var space = await LoadAsync(spaceId, cancellationToken);
+
+        space.CheckInToken = GenerateToken();
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return new CheckInCode(space.Id, space.CheckInToken);
+    }
+
+    /// <summary>
+    /// 160 bits, URL-safe. Long because it is scanned rather than typed, so length costs nobody
+    /// anything — and guessing was never the threat here. A sticker that has been photographed is,
+    /// which is what rotation is for.
+    /// </summary>
+    private static string GenerateToken() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(20))
+            .Replace("+", "-").Replace("/", "_").TrimEnd('=');
 
     /// <summary>
     /// Loads a space the caller is allowed to change. Without the ownership check any host could

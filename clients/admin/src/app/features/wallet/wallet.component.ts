@@ -101,8 +101,8 @@ import {
           }
 
           @if (pendingOrder(); as order) {
-            <!-- Reached only when the gateway hands back SDK keys rather than a checkout URL, which
-                 is what a real aggregator does. Its sheet is not wired in yet, so show the order. -->
+            <!-- Every gateway the API offers returns a checkout URL, so this is a fallback for a
+                 payload without one: show the order rather than nothing. -->
             <div class="banner banner--info">
               Order <strong>{{ order.providerOrderId }}</strong> created for
               {{ order.amount | currency: 'INR' : 'symbol' : '1.2-2' }}. Complete it in the
@@ -232,9 +232,13 @@ export class WalletComponent implements OnInit {
   readonly pendingOrder = signal<StartPaymentResult | null>(null);
   readonly outcome = signal<PaymentOrderView | null>(null);
 
-  /** How long to keep asking before giving up and telling the user the callback has not landed. */
+  /**
+   * How long to keep asking before giving up. About two minutes: a real UPI payment can take a
+   * while to confirm, and the server asks the gateway itself while we wait, so a payment whose
+   * webhook never arrives still shows up here.
+   */
   private static readonly POLL_INTERVAL_MS = 1200;
-  private static readonly POLL_ATTEMPTS = 15;
+  private static readonly POLL_ATTEMPTS = 100;
 
   startPayment(): void {
     this.paying.set(true);
@@ -255,7 +259,7 @@ export class WalletComponent implements OnInit {
           return;
         }
 
-        // A gateway that returns SDK keys instead of a URL. Its sheet is not wired in yet.
+        // A payload with no checkout URL. Every gateway the API offers sends one; show the order.
         this.pendingOrder.set(order);
       },
       error: (err: Error) => {

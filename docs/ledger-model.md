@@ -98,3 +98,23 @@ to chase cash from someone who has already driven away.
   running timer to enforce it against.
 - Concurrency is guarded by an optimistic `Version` token on `Wallet`. Under real contention this
   wants either a retry policy or `SELECT … FOR UPDATE`; not yet load-tested.
+
+## Concurrency
+
+Two writers can reach one wallet at once — several sessions ending against the same host, or one
+renter with two bookings finishing together. Three things keep that honest, and each covers what
+the others do not:
+
+- **A `FOR UPDATE` lock** on the wallet rows, taken inside the posting transaction and released
+  with it. Writers queue rather than race. Rows are locked in id order, so two transactions
+  touching the same pair of wallets cannot deadlock by taking them in opposite orders.
+- **The optimistic `Version` token**, which catches anything that reaches a wallet without the
+  lock and turns it into a retry rather than a lost update.
+- **The unique index on `IdempotencyKey`**, which is the real guarantee that one logical operation
+  posts once. The pre-check at the top of `PostAsync` is only an optimisation: under a genuine race
+  both copies find nothing, and the index is what stops the second insert. Losing that insert is
+  treated as success — the transaction it collided with *is* the caller's answer.
+
+The unit suite cannot test any of this. It runs on one shared SQLite connection, which serialises
+writes by construction, so the token is carried but never exercised. `WalletConcurrencyTests` in the
+integration project does it against real Postgres.

@@ -14,6 +14,20 @@ public enum VehicleType
     FourWheeler = 2
 }
 
+/// <summary>
+/// What a host offers as proof of identity.
+///
+/// Indian documents, because that is the market: PAN is what an aggregator will ask for at
+/// onboarding, and Aadhaar or a driving licence is what most people can photograph today.
+/// </summary>
+public enum KycDocumentType
+{
+    Pan = 1,
+    Aadhaar = 2,
+    DrivingLicence = 3,
+    Passport = 4
+}
+
 public enum KycStatus
 {
     NotStarted = 0,

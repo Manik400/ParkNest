@@ -44,12 +44,28 @@ vulnerable code unrepresentable — there is no input to forget to validate.
   new endpoint is protected unless it explicitly opts out with `[AllowAnonymous]`.
 - `ForbiddenException` is deliberately separate from `DomainException` — a permission failure is
   403, not 400, and conflating them leaks resource existence through error messages.
-- **No refresh tokens and no revocation.** A token is valid for its full 12 hours; there is no way
-  to log a device out early. Acceptable at Phase 0, must be fixed before real users.
-- **No rate limiting on OTP requests.** The attempt cap protects a given code, but nothing stops
-  an attacker requesting thousands of codes and burning SMS budget. Must be fixed before launch.
-- The dev OTP sender returns the code in the API response. `DependencyInjection` throws at startup
-  in Production rather than allowing that to ship.
+- ~~No refresh tokens and no revocation.~~ Since fixed: access tokens last an hour, and the
+  session lives on a stored refresh token that rotates on every use.
+- ~~No rate limiting on OTP requests.~~ Since fixed: a cooldown and a rolling-window cap per
+  destination, plus per-IP limits at the HTTP edge.
+- The dev OTP sender returns the code in the API response. `DependencyInjection` never registers
+  it in Production.
+
+## Amendment — 2026-09-11: email as well as phone
+
+A code can now go to an **email address** as well as a phone number. The user types either one,
+and the service tells them apart by the '@'.
+
+The reason is cost, not preference. Delivering SMS is a licensed, per-message-billed service in
+India (DLT), and the project is to run on free services until it earns. SMTP is free at this scale:
+Gmail with an App Password, or Brevo's free relay.
+
+Each channel has its own `IOtpSender`. A channel with no sender is switched off: asking for a code
+on it is refused up front rather than issuing a code nobody can receive. Production needs at least
+one real channel to start, and until an SMS provider is paid for, that channel is email.
+
+`User.Phone` is therefore nullable. An account starts with whichever contact it signed in with.
+Attaching the second contact to an existing account is not built yet (see the backlog).
 
 ## Alternatives rejected
 

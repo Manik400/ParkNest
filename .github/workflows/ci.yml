@@ -38,9 +38,11 @@ jobs:
         run: dotnet build --no-restore -c Release
 
       # The suite runs on in-memory SQLite, so no database service container is needed.
+      # Only the unit project: the integration tests need a PostGIS container and run in the
+      # migrations job, which already has one.
       - name: Test
         run: >
-          dotnet test --no-build -c Release
+          dotnet test tests/ParkNest.UnitTests --no-build -c Release
           --logger "trx;LogFileName=test-results.trx"
           --results-directory ${{ github.workspace }}/TestResults
 
@@ -74,6 +76,38 @@ jobs:
 
       - name: Build
         run: npx ng build --configuration production
+
+  mobile-app:
+    name: Mobile app analyses and tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: clients/mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Pinned to the version the app is developed against. The plugin constraints in
+          # pubspec.yaml are written around it — geolocator and mobile_scanner both moved to
+          # newer Flutter tooling in their next majors.
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Install
+        run: flutter pub get
+
+      # Analysis, not a build. An APK needs an Android toolchain for a check that would only tell
+      # us what analyze already did — the parts worth protecting here are the wire models and the
+      # code the scanner accepts, and those are tests.
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
 
   migrations-apply:
     name: Migrations apply to a real PostGIS database
@@ -118,3 +152,24 @@ jobs:
         env:
           PGPASSWORD: parknest
         run: bash .github/scripts/verify-schema.sh
+
+      # Two things only this job can check: the geo-search path — the generated geog column, the
+      # GiST index, the raw SQL — which the SQLite suite cannot see at all, and whether every
+      # controller resolves from the real container, which no test that constructs its
+      # dependencies by hand can see either. Without the connection variable these skip, which is
+      # right locally and would be silent rot here; the variable is set, so they run.
+      - name: Integration tests (geo-search, container wiring)
+        env:
+          PARKNEST_TEST_CONNECTION: Host=localhost;Port=5432;Database=parknest;Username=parknest;Password=parknest
+        run: >
+          dotnet test tests/ParkNest.IntegrationTests
+          --logger "trx;LogFileName=integration-results.trx"
+          --results-directory ${{ github.workspace }}/TestResults
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: ${{ github.workspace }}/TestResults
+          retention-days: 14

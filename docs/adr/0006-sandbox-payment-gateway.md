@@ -4,7 +4,10 @@ Date: 2026-08-04
 
 ## Status
 
-Accepted.
+Accepted. Amended by [0007](0007-provider-selectable-gateways.md):
+- The single `SignatureHeader` gave way to verification over every header.
+- The sandbox's secret moved to `Payments:Sandbox:WebhookSecret`.
+- Its checkout page now returns through `/checkout/return/{orderId}`, like a real provider.
 
 ## Context
 

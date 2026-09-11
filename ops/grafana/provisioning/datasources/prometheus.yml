@@ -1,0 +1,10 @@
+# Provisioned rather than clicked in, so the dashboards below resolve on a fresh volume.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    uid: parknest-prometheus

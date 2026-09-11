@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ParkNest.Application.Payments;
 
 namespace ParkNest.Api.Controllers;
@@ -9,23 +10,21 @@ namespace ParkNest.Api.Controllers;
 public sealed class PaymentsController : ControllerBase
 {
     private readonly IPaymentService _payments;
-    private readonly IPaymentGateway _gateway;
 
-    public PaymentsController(IPaymentService payments, IPaymentGateway gateway)
+    public PaymentsController(IPaymentService payments)
     {
         _payments = payments;
-        _gateway = gateway;
     }
 
     /// <summary>
-    /// Starts a credit purchase. Returns what the client SDK needs to open the checkout sheet.
-    /// No credits are issued here — only a verified webhook does that.
+    /// Starts a credit purchase. Returns a payload whose <c>checkout_url</c> the client opens.
+    /// No credits are issued here — only the gateway's confirmation does that.
     /// </summary>
     [HttpPost("orders")]
     public async Task<ActionResult<StartPaymentResult>> Start(
         [FromBody] StartPaymentRequest request,
         CancellationToken cancellationToken) =>
-        Ok(await _payments.StartAsync(request.Amount, cancellationToken));
+        Ok(await _payments.StartAsync(request.Amount, request.ReturnTo, cancellationToken));
 
     /// <summary>
     /// Where an order stands. The client polls this after checkout rather than believing the
@@ -36,10 +35,11 @@ public sealed class PaymentsController : ControllerBase
         Ok(await _payments.GetOrderAsync(orderId, cancellationToken));
 
     /// <summary>
-    /// Gateway callback. Anonymous by necessity — the gateway has no bearer token — so the
-    /// signature is the only thing standing between this endpoint and free credits.
+    /// Gateway callback. Anonymous by necessity — the gateway has no bearer token — so its
+    /// verification is the only thing standing between this endpoint and free credits.
     /// </summary>
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.PaymentWebhook)]
     [HttpPost("webhook")]
     public async Task<IActionResult> Webhook(CancellationToken cancellationToken)
     {
@@ -50,14 +50,23 @@ public sealed class PaymentsController : ControllerBase
         var rawBody = await reader.ReadToEndAsync(cancellationToken);
         Request.Body.Position = 0;
 
-        var signature = Request.Headers[_gateway.SignatureHeader].ToString();
+        // Every header, because providers disagree about where the proof lives — a signature
+        // header, a signature plus a timestamp, or Authorization. The gateway picks what it needs.
+        var headers = Request.Headers.ToDictionary(
+            h => h.Key,
+            h => h.Value.ToString(),
+            StringComparer.OrdinalIgnoreCase);
 
-        var result = await _payments.HandleWebhookAsync(rawBody, signature, cancellationToken);
+        var result = await _payments.HandleWebhookAsync(new WebhookRequest(rawBody, headers), cancellationToken);
 
-        // 200 even when the order is unknown: the signature was valid, so the gateway did its
+        // 200 even when the order is unknown: the webhook was verified, so the gateway did its
         // part, and making it retry forever would not help.
         return Ok(new { accepted = result.Accepted, message = result.Message });
     }
 }
 
-public sealed record StartPaymentRequest(decimal Amount);
+/// <param name="ReturnTo">
+/// The client starting the payment: "admin" (the default) or "app". Decides where the browser
+/// lands after checkout.
+/// </param>
+public sealed record StartPaymentRequest(decimal Amount, string? ReturnTo = null);

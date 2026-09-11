@@ -1,0 +1,58 @@
+# Where a firing alert goes.
+#
+# The rules in prometheus/alerts.yml have always evaluated; nothing carried them to a person. This
+# is that half — and it is deliberately routed to a local webhook sink by default rather than to a
+# Slack workspace nobody has created, so `docker compose up` produces a working delivery path
+# instead of a chain of unset placeholders that fails silently at the far end.
+#
+# To route somewhere real, uncomment the slack receiver, put the webhook URL in
+# ops/alertmanager/.secret.yml (git-ignored) or an environment variable, and change the route's
+# receiver. Who is on call is a decision this file cannot make for you.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: local-sink
+
+  # Grouped by alert so twenty wallets drifting is one page, not twenty.
+  group_by: [alertname]
+  group_wait: 30s
+  group_interval: 5m
+
+  # Four hours between repeats of something still firing. Short enough that an unattended
+  # incident resurfaces, long enough that the repeat is not what people learn to ignore.
+  repeat_interval: 4h
+
+  routes:
+    # Ledger drift is the one that should wake somebody. It says stored balances and the ledger
+    # disagree about somebody's money, and it is the only alert in this file that can never be
+    # explained by a quiet day.
+    - matchers: [severity="critical"]
+      receiver: local-sink
+      group_wait: 0s
+      repeat_interval: 1h
+
+inhibit_rules:
+  # While the money itself is wrong, a raised shortfall rate is noise: it is very likely the same
+  # incident seen from a second angle, and paging twice for one problem is how the second page
+  # stops being read.
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [environment]
+
+receivers:
+  - name: local-sink
+    webhook_configs:
+      # The sink container prints what it receives. Useful precisely because it is visible:
+      # `docker compose logs alert-sink` shows whether an alert actually left Alertmanager, which
+      # is the question you have when a rule fires and nothing arrives.
+      - url: http://alert-sink:8080/
+        send_resolved: true
+
+  # - name: slack
+  #   slack_configs:
+  #     - api_url: https://hooks.slack.com/services/REPLACE/ME
+  #       channel: '#parknest-alerts'
+  #       title: '{{ .CommonAnnotations.summary }}'
+  #       text: '{{ .CommonAnnotations.description }}'
+  #       send_resolved: true

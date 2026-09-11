@@ -1,0 +1,648 @@
+{
+  "uid": "parknest-overview",
+  "title": "ParkNest — money, marketplace, API",
+  "description": "The three questions PRD §17 asks, in the order they matter: is the money right, is the marketplace alive, is the API healthy. Every panel reads a metric the API already exposes at /metrics — nothing here is computed in Grafana that could be wrong in a different way from the ledger.",
+  "tags": [
+    "parknest"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Is the money right?",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Ledger drift",
+      "description": "Absolute gap between stored wallet balances and the ledger replayed from its entries, from the hourly sweep. This is the number that should be exactly zero: balances are a cached projection, and any drift means the cache and the truth disagree about someone's money.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "parknest_reconciliation_drift_credits",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.01
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Wallets reconciled",
+      "description": "How many wallets the last sweep replayed. Zero drift across zero wallets is not good news, which is why the count sits next to the drift rather than behind it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "parknest_reconciliation_wallets_checked",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": null,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Uncovered credits (24h)",
+      "description": "Credits a renter owed at settlement and could not cover. The prepaid model exists to keep this near zero — a rise means holds are too small or over-runs are being billed too late.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "increase(parknest_shortfall_credits_total[24h])",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Settled (24h)",
+      "description": "Credits moved from renters to hosts and the platform at settlement.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "increase(parknest_credits_settled_total[24h])",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Settlement",
+      "description": "What the marketplace moved, against what it failed to collect. The two lines belong on one axis: a shortfall is only meaningful next to the volume it came out of.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum(rate(parknest_credits_settled_total[5m])) * 60",
+          "refId": "A",
+          "legendFormat": "credits settled / min"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum(rate(parknest_shortfall_credits_total[5m])) * 60",
+          "refId": "B",
+          "legendFormat": "shortfall / min"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "How sessions ended",
+      "description": "Settled sessions per hour, split by whether the renter covered what they owed. A violation is a session that ended with credits still outstanding.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum by (outcome) (rate(parknest_sessions_ended_total[15m])) * 3600",
+          "refId": "A",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Is the marketplace alive?",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Bookings and cancellations",
+      "description": "Booking volume, with cancellations split by whether they landed inside the free window. Late cancellations compensate the host, so the split is a policy question rather than a presentation one.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum(rate(parknest_bookings_created_total[15m])) * 3600",
+          "refId": "A",
+          "legendFormat": "booked / hr"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum by (timing) (rate(parknest_bookings_cancelled_total[15m])) * 3600",
+          "refId": "B",
+          "legendFormat": "cancelled ({{timing}}) / hr"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Over-runs, blocked slots and disputes",
+      "description": "Overstay debits are taken by the meter while a session is still running. A blocked slot is the over-run that reached a second renter — their booking could not be delivered, and unlike an overstay it costs the platform a refund it cannot recover. Watch the ratio of the two rather than either alone: if it climbs, the gap between bookable slots is too tight. Disputes are the signal that the detection tier is not convincing anyone — PRD §17 tracks the rate for exactly that reason.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum(rate(parknest_overstays_charged_total[15m])) * 3600",
+          "refId": "A",
+          "legendFormat": "overstay debits / hr"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum(rate(parknest_blocked_slots_total[15m])) * 3600",
+          "refId": "C",
+          "legendFormat": "blocked slots / hr"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum(rate(parknest_disputes_raised_total[15m])) * 3600",
+          "refId": "B",
+          "legendFormat": "disputes raised / hr"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Is the API healthy?",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate by status",
+      "description": "From prometheus-net's HTTP middleware rather than anything hand-instrumented.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "sum by (code) (rate(http_requests_received_total[5m]))",
+          "refId": "A",
+          "legendFormat": "{{code}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request duration (p50 / p95)",
+      "description": "Quantiles over all endpoints. Useful as a smoke signal; a slow money path is better found in the panels above, which count what actually happened rather than how fast it was refused.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "parknest-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))",
+          "refId": "A",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "parknest-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))",
+          "refId": "B",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ]
+}

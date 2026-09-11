@@ -89,7 +89,7 @@ public sealed class AuthorizationTests : IDisposable
 
         var cancelled = await _h.Bookings.CancelBookingAsync(booking.Id);
 
-        cancelled.Status.Should().Be(BookingStatus.Cancelled);
+        cancelled.Booking.Status.Should().Be(BookingStatus.Cancelled);
     }
 
     [Fact]

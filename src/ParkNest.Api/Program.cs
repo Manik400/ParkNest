@@ -1,16 +1,24 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using ParkNest.Api;
 using ParkNest.Api.Auth;
+using ParkNest.Api.Observability;
+using ParkNest.Api.Realtime;
 using ParkNest.Application.Abstractions;
 using ParkNest.Application.Options;
 using ParkNest.Domain.Common;
 using ParkNest.Infrastructure;
+using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,6 +41,26 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             // Default is 5 minutes, which lets a revoked-looking token linger. Sessions are long
             // enough that we don't need the slack.
             ClockSkew = TimeSpan.Zero
+        };
+
+        // A browser cannot set an Authorization header on a WebSocket handshake, so SignalR sends
+        // the token as a query parameter instead. Accepted for the hub path and nowhere else —
+        // tokens in query strings end up in access logs and browser history, which is tolerable
+        // for one route and would not be for the API at large.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var token = context.Request.Query["access_token"];
+
+                if (!string.IsNullOrEmpty(token) &&
+                    context.HttpContext.Request.Path.StartsWithSegments("/hubs/parknest"))
+                {
+                    context.Token = token;
+                }
+
+                return Task.CompletedTask;
+            }
         };
     });
 
@@ -57,6 +85,115 @@ builder.Services
     .AddJsonOptions(options =>
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
+// Rate limiting, at the edge, for everything reachable without a token. The service layer caps
+// what a single phone number can cost us; this caps what a single caller can cost us, which is a
+// different attack — one number under a flood of IPs versus one IP walking a list of numbers.
+//
+// Partitioned by remote IP. Behind a reverse proxy that means the proxy unless it is configured to
+// forward the client address, so ForwardedHeaders has to be on before this is load-bearing in a
+// real deployment.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // A ProblemDetails body, so a 429 from the middleware reads the same as a 429 from the
+    // service layer. A client should not have to parse two shapes for one condition.
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter =
+                ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+        }
+
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        await context.HttpContext.Response.WriteAsJsonAsync(new ProblemDetails
+        {
+            Status = StatusCodes.Status429TooManyRequests,
+            Title = "Too many requests",
+            Detail = "Slow down and try again shortly.",
+            Type = nameof(TooManyRequestsException)
+        }, cancellationToken);
+    };
+
+    // Sending an SMS costs money, so this is the tightest bucket in the system.
+    options.AddPolicy(RateLimitPolicies.OtpRequest, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(15),
+            QueueLimit = 0
+        }));
+
+    // Verification is free to serve but is the brute-force surface; the per-code attempt cap
+    // already bounds guesses against one code, this bounds guesses across many.
+    options.AddPolicy(RateLimitPolicies.OtpVerify, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(15),
+            QueueLimit = 0
+        }));
+
+    // The webhook is anonymous and every call costs an HMAC over the body before it can be
+    // rejected. Generous, because a real gateway retries failed deliveries and must not be
+    // throttled into giving up.
+    options.AddPolicy(RateLimitPolicies.PaymentWebhook, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 120,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
+    // The checkout pages are anonymous, and the return page asks the provider about an order on
+    // every visit. The order's own throttle bounds the calls per order; this bounds a caller
+    // walking through order ids. A person paying loads each page once or twice.
+    options.AddPolicy(RateLimitPolicies.CheckoutPage, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
+    static string ClientKey(HttpContext http) =>
+        http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+});
+
+// The live channel: session timers, overstay warnings, wallet movements.
+builder.Services.AddSignalR();
+
+// Pushes those events down the socket. Registered per event type, alongside — never instead of —
+// the handler that writes the durable notification: a socket push to a phone in a basement is
+// simply lost, and must not be the only place the message existed.
+builder.Services.AddScoped<RealtimeEventHandlers>();
+builder.Services.AddScoped<IEventHandler<SessionStarted>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<SessionEnded>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<OverstayCharged>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<NextSlotBlocked>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<WalletChanged>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+builder.Services.AddScoped<IEventHandler<BookingCancelled>>(sp => sp.GetRequiredService<RealtimeEventHandlers>());
+
+// Business counters, fed off the same events as notifications. Instrumenting the booking service
+// in-line would put observability in the middle of a money path, and the numbers would drift the
+// moment somebody added a code path and forgot the increment.
+builder.Services.AddScoped<MetricsEventHandlers>();
+builder.Services.AddScoped<IEventHandler<BookingCreated>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<SessionEnded>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<BookingCancelled>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<OverstayCharged>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<NextSlotBlocked>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+builder.Services.AddScoped<IEventHandler<DisputeRaised>>(sp => sp.GetRequiredService<MetricsEventHandlers>());
+
+// Watches the one invariant the whole credit model rests on: that stored balances still equal the
+// ledger replayed from its entries.
+builder.Services.AddHostedService<ReconciliationSweepService>();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddProblemDetails();
 
@@ -69,7 +206,10 @@ if (!builder.Environment.IsProduction())
     builder.Services.AddCors(options => options.AddPolicy(devCorsPolicy, policy => policy
         .WithOrigins("http://localhost:4200", "https://localhost:4200")
         .AllowAnyHeader()
-        .AllowAnyMethod()));
+        .AllowAnyMethod()
+        // SignalR's negotiate step sends credentials, and the browser refuses a wildcard origin
+        // once it does. The origins above are explicit, so this is allowed.
+        .AllowCredentials()));
 }
 
 builder.Services.AddSwaggerGen(options =>
@@ -98,6 +238,9 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+var storageOptions = builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>()
+    ?? new StorageOptions();
+
 var app = builder.Build();
 
 // Failures are mapped centrally so controllers stay free of try/catch and clients get a stable
@@ -110,6 +253,7 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
     var (status, title) = exception switch
     {
         UnauthorizedException => (StatusCodes.Status401Unauthorized, "Authentication required"),
+        TooManyRequestsException => (StatusCodes.Status429TooManyRequests, "Too many requests"),
         ForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden"),
         InsufficientCreditsException => (StatusCodes.Status402PaymentRequired, "Insufficient credits"),
         DomainException => (StatusCodes.Status400BadRequest, "Request rejected"),
@@ -124,6 +268,13 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
         Detail = status == StatusCodes.Status500InternalServerError ? null : exception?.Message,
         Type = exception?.GetType().Name
     };
+
+    // Tell the caller when to come back rather than leaving them to guess and hammer.
+    if (exception is TooManyRequestsException throttled)
+    {
+        context.Response.Headers.RetryAfter =
+            ((int)Math.Ceiling(throttled.RetryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+    }
 
     context.Response.StatusCode = status;
     await context.Response.WriteAsJsonAsync(problem);
@@ -140,10 +291,63 @@ if (!app.Environment.IsProduction())
     app.UseCors(devCorsPolicy);
 }
 
+// Ahead of authentication: a flood should be shed before it costs us a signature validation.
+// Request duration and status, per endpoint. Before the rate limiter so a shed request still
+// appears in the numbers — a spike of 429s is exactly the thing worth seeing.
+app.UseHttpMetrics();
+
+app.UseRateLimiter();
+
+// Listing photos, when they are kept on this box. Deliberately narrow:
+//
+//  - only the three extensions the upload path can produce, so anything else that ends up in the
+//    directory is a 404 rather than something a browser will try to interpret;
+//  - nosniff, so a file cannot be re-interpreted as script on the strength of its content;
+//  - attachment-free but non-executing content types only, because these are served from the API's
+//    own origin and user-supplied content served as active content is how stored XSS happens.
+if (!storageOptions.IsDisabled)
+{
+    var mediaRoot = Path.IsPathRooted(storageOptions.LocalRoot)
+        ? storageOptions.LocalRoot
+        : Path.Combine(app.Environment.ContentRootPath, storageOptions.LocalRoot);
+
+    Directory.CreateDirectory(mediaRoot);
+
+    var contentTypes = new FileExtensionContentTypeProvider(new Dictionary<string, string>
+    {
+        [".jpg"] = "image/jpeg",
+        [".png"] = "image/png",
+        [".webp"] = "image/webp",
+    });
+
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(mediaRoot),
+        RequestPath = '/' + storageOptions.PublicPath.Trim('/'),
+        ContentTypeProvider = contentTypes,
+        // Anything without one of the three mappings above is simply not served.
+        ServeUnknownFileTypes = false,
+        OnPrepareResponse = context =>
+        {
+            context.Context.Response.Headers.XContentTypeOptions = "nosniff";
+            // Photos are immutable once written — the filename is a fresh GUID every upload — so
+            // they can be cached hard.
+            context.Context.Response.Headers.CacheControl = "public,max-age=31536000,immutable";
+        },
+    });
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<ParkNestHub>("/hubs/parknest");
+
+// Anonymous, and therefore not to be exposed publicly: the counters describe booking volume and
+// revenue. Reachable from inside the network where Prometheus scrapes it, and firewalled from
+// outside — the same treatment /health gets, for the opposite reason.
+app.MapMetrics("/metrics").AllowAnonymous();
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 
 app.Run();

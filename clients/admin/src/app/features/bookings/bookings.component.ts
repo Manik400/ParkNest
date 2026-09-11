@@ -75,6 +75,12 @@ type Scope = 'renting' | 'hosting';
                   <td>
                     <a [routerLink]="['/bookings', booking.id]">{{ booking.spaceTitle }}</a>
                     <div class="muted small">{{ booking.spaceAddress }}</div>
+                    <!-- A status pill cannot carry this: the booking is still Held, which is what
+                         the pill correctly says, and "the space has somebody else's car in it" is
+                         the part that decides whether to set off. -->
+                    @if (booking.slotBlocked) {
+                      <div class="small blocked">Space was still occupied — cancelling is free</div>
+                    }
                   </td>
                   <td>{{ booking.startTime | date: 'short' }}</td>
                   <td>
@@ -104,6 +110,10 @@ type Scope = 'renting' | 'hosting';
 
       .filter {
         min-width: 180px;
+      }
+
+      .blocked {
+        color: var(--danger, #b3261e);
       }
 
       .small {

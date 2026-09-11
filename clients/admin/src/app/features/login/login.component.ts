@@ -13,7 +13,7 @@ import { AuthService } from '../../core/auth.service';
       <form class="card stack" (ngSubmit)="submit()">
         <div>
           <h1>ParkNest</h1>
-          <p class="muted">Sign in with your phone number.</p>
+          <p class="muted">Sign in with your email address or phone number.</p>
         </div>
 
         @if (error(); as message) {
@@ -21,14 +21,17 @@ import { AuthService } from '../../core/auth.service';
         }
 
         <div>
-          <label for="phone">Phone number</label>
+          <label for="destination">Email or phone number</label>
           <input
-            id="phone"
-            name="phone"
-            type="tel"
-            autocomplete="tel"
-            placeholder="9876543210"
-            [(ngModel)]="phone"
+            id="destination"
+            name="destination"
+            type="text"
+            inputmode="email"
+            autocomplete="email"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="you@example.com"
+            [(ngModel)]="destination"
             [disabled]="stage() === 'code'"
             required
           />
@@ -48,8 +51,8 @@ import { AuthService } from '../../core/auth.service';
             />
           </div>
 
-          <!-- Development convenience: outside Production the API returns the code, because no
-               SMS gateway is wired yet. It is null in Production. -->
+          <!-- Development convenience: the API returns the code when no real email or SMS sender
+               is configured. It is always null in Production. -->
           @if (devCode(); as dev) {
             <div class="banner banner--info">
               Development code: <strong>{{ dev }}</strong>
@@ -63,7 +66,7 @@ import { AuthService } from '../../core/auth.service';
           </button>
 
           @if (stage() === 'code') {
-            <button type="button" [disabled]="busy()" (click)="restart()">Use another number</button>
+            <button type="button" [disabled]="busy()" (click)="restart()">Use a different one</button>
           }
         </div>
       </form>
@@ -89,7 +92,8 @@ export class LoginComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
-  phone = '';
+  /** An email address or a phone number; the API tells them apart. */
+  destination = '';
   code = '';
 
   readonly stage = signal<'phone' | 'code'>('phone');
@@ -109,15 +113,15 @@ export class LoginComponent {
   }
 
   private sendCode(): void {
-    if (!this.phone.trim()) {
-      this.error.set('Enter a phone number.');
+    if (!this.destination.trim()) {
+      this.error.set('Enter your email address or phone number.');
       return;
     }
 
     this.busy.set(true);
     this.error.set(null);
 
-    this.auth.requestOtp(this.phone).subscribe({
+    this.auth.requestOtp(this.destination).subscribe({
       next: (challenge) => {
         this.busy.set(false);
         this.devCode.set(challenge.devCode);
@@ -139,7 +143,7 @@ export class LoginComponent {
     this.busy.set(true);
     this.error.set(null);
 
-    this.auth.verifyOtp(this.phone, this.code).subscribe({
+    this.auth.verifyOtp(this.destination, this.code).subscribe({
       next: () => {
         this.busy.set(false);
         const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl') ?? '/';

@@ -20,17 +20,52 @@ public interface IBookingService
     Task<Booking> CreateBookingAsync(CreateBookingRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>Renter has arrived. Starts the meter.</summary>
-    Task<Booking> StartSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CancellationToken cancellationToken = default);
+    Task<Booking> StartSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CheckInProof? proof = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Renter has left. Measures the real duration, bills it, releases whatever is unused, and
     /// moves the used portion to the host less commission (PRD §5.1.3).
     /// </summary>
-    Task<SessionOutcome> EndSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CancellationToken cancellationToken = default);
+    Task<SessionOutcome> EndSessionAsync(Guid bookingId, DetectionMethod method, DateTimeOffset? at = null, CheckInProof? proof = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Cancels a booking that never started and returns the full hold.</summary>
-    Task<Booking> CancelBookingAsync(Guid bookingId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// What cancelling right now would cost, without cancelling. Lets the confirmation say the
+    /// figure rather than the app guessing at the policy.
+    /// </summary>
+    Task<CancellationTerms> PreviewCancellationAsync(Guid bookingId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cancels a booking that never started. Returns the hold, less a fee if it is late enough to
+    /// leave the host with a slot they cannot re-let.
+    /// </summary>
+    Task<CancellationOutcome> CancelBookingAsync(Guid bookingId, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// What a Tier 2 check-in offers as evidence: the code from the sticker at the space, and where
+/// the phone thinks it is. Neither is proof on its own — the code can be photographed and GPS can
+/// be spoofed — but needing both raises the cost of faking a check-in from trivial to deliberate,
+/// which is the whole ambition at this tier (PRD §10.2).
+/// </summary>
+public sealed record CheckInProof(string Token, double Latitude, double Longitude);
+
+/// <param name="FreeUntil">After this moment a cancellation starts costing something.</param>
+/// <param name="SlotBlocked">
+/// The previous car had not left when this slot came due, so it is free whatever the notice. The
+/// client needs it separately from <paramref name="IsFree"/> to say <em>why</em> — "free because
+/// we could not give you the space" and "free because you are early" are different sentences, and
+/// a renter who reads the second when the first is true will assume they got lucky rather than
+/// that something went wrong.
+/// </param>
+public sealed record CancellationTerms(
+    decimal HoldAmount,
+    decimal Fee,
+    decimal Refund,
+    bool IsFree,
+    DateTimeOffset FreeUntil,
+    bool SlotBlocked = false);
+
+public sealed record CancellationOutcome(Booking Booking, decimal Fee, decimal Refund);
 
 /// <summary>
 /// Note the absence of a renter id: the renter is always the authenticated caller. Accepting one
