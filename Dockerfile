@@ -35,6 +35,11 @@ COPY --from=admin /admin/dist/admin/browser ./wwwroot
 RUN mkdir -p /app/media
 # Kestrel listens on 8080 in the base image (ASPNETCORE_HTTP_PORTS). TLS is the host's job.
 EXPOSE 8080
+# Workstation GC and memory conservation: free container tiers give 256-512 MB, and Server GC
+# (ASP.NET Core's default) sizes its heaps per core for throughput. Measured with these settings:
+# about 150 MB working set under load, 48 MB private.
 ENV ASPNETCORE_ENVIRONMENT=Staging \
-    ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+    ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \
+    DOTNET_gcServer=0 \
+    DOTNET_GCConserveMemory=5
 ENTRYPOINT ["dotnet", "ParkNest.Api.dll"]

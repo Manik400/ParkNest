@@ -2,9 +2,13 @@
 
 **Written:** 2026-09-12. Free tiers change; check the provider's pricing page if anything below looks off.
 
+> **Render asks for a card at signup, even for the free instance** (seen 2026-09-12, for both
+> Blueprints and a manually created web service). Nothing is charged on the free plan, but if a
+> card is not acceptable use [hosting-back4app-neon.md](hosting-back4app-neon.md) instead.
+
 One Render web service runs the API with the admin site built into it, and a Neon Postgres
-database holds the data. Nothing here costs money, needs a card, or needs KYC. The mobile app
-points at the same URL.
+database holds the data. Nothing here costs money or needs KYC. The mobile app points at the
+same URL.
 
 | Piece | Where | Free-tier shape |
 |---|---|---|

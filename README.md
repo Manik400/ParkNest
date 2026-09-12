@@ -185,10 +185,11 @@ the host, so start the API first — details and the one number worth alerting o
 
 ## Hosting it for free
 
-One Render web service (API with the admin site built in, from the [`Dockerfile`](Dockerfile))
-plus a Neon Postgres database. No card, no KYC. The walkthrough, including every variable the
-[`render.yaml`](render.yaml) blueprint asks for, is in
-[docs/hosting-render-neon.md](docs/hosting-render-neon.md).
+One container (the API with the admin site built in, from the [`Dockerfile`](Dockerfile)) plus a
+Neon Postgres database. **Back4App Containers** is the host that needs no card; the walkthrough is
+[docs/hosting-back4app-neon.md](docs/hosting-back4app-neon.md), including why Render, Hugging
+Face, Koyeb and Railway were ruled out. [docs/hosting-render-neon.md](docs/hosting-render-neon.md)
+and [`render.yaml`](render.yaml) cover Render, for when a card on file is acceptable.
 
 ## Buying credits
 

@@ -361,7 +361,12 @@ if (servesAdminSite)
     // Deep links into the Angular app (/wallet?orderId=…) land here on a fresh load and need the
     // shell; everything the API itself owns is excluded so a wrong API path still 404s as JSON
     // rather than answering with a page.
-    app.MapFallbackToFile("{*path:regex(^(?!api/|checkout/|sandbox/|hubs/|metrics|health|media/|swagger).*$)}", "index.html");
+    //
+    // Anonymous, because the authorization fallback policy would otherwise answer 401 before the
+    // page loads: the site is a shell that signs in by itself, and a payment returning to
+    // /wallet?orderId=… arrives on a fresh load with no bearer token.
+    app.MapFallbackToFile("{*path:regex(^(?!api/|checkout/|sandbox/|hubs/|metrics|health|media/|swagger).*$)}", "index.html")
+        .AllowAnonymous();
 }
 
 // Anonymous, and therefore not to be exposed publicly: the counters describe booking volume and
