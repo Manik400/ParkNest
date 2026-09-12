@@ -130,6 +130,38 @@ class LedgerEntrySummary {
   bool get isCredit => direction == 'Credit';
 }
 
+/// The signed-in account. `phone` and `email` are sign-in identities; `paymentPhone` only goes
+/// to the payment gateway, which insists on a number, and needs no verification code.
+class Profile {
+  const Profile({
+    required this.id,
+    required this.fullName,
+    required this.phone,
+    required this.email,
+    required this.paymentPhone,
+    required this.role,
+    required this.kycStatus,
+  });
+
+  factory Profile.fromJson(Map<String, dynamic> json) => Profile(
+        id: json['id'] as String,
+        fullName: json['fullName'] as String,
+        phone: json['phone'] as String?,
+        email: json['email'] as String?,
+        paymentPhone: json['paymentPhone'] as String?,
+        role: json['role'] as String,
+        kycStatus: json['kycStatus'] as String,
+      );
+
+  final String id;
+  final String fullName;
+  final String? phone;
+  final String? email;
+  final String? paymentPhone;
+  final String role;
+  final String kycStatus;
+}
+
 class Vehicle {
   const Vehicle({required this.id, required this.plateNumber, required this.type});
 

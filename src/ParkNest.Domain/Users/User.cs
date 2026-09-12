@@ -15,6 +15,14 @@ public class User
 
     /// <summary>Lower-cased. Null for an account created by phone.</summary>
     public string? Email { get; set; }
+
+    /// <summary>
+    /// Normalised digits, unverified. The number handed to the payment gateway when
+    /// <see cref="Phone"/> is missing — Cashfree refuses an order without one, and an account
+    /// created by email has none. Never used for sign-in: an unverified number that could sign
+    /// in would let whoever owns it take the account.
+    /// </summary>
+    public string? PaymentPhone { get; set; }
     public KycStatus KycStatus { get; set; } = KycStatus.NotStarted;
 
     /// <summary>0-100 reputation signal. Overstay violations and upheld disputes push it down.</summary>

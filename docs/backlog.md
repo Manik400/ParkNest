@@ -67,10 +67,16 @@ Phases follow PRD §18. Items are ordered within each phase.
         missed webhook still credits exactly once.
       - The mobile app returns to a "go back to the app" page.
       - Research and costs are in [payment-gateway-setup-fully-free-rnd.md](payment-gateway-setup-fully-free-rnd.md).
-- [ ] **A real provider exercised for real.** Next is the founder's pick: Cashfree is recommended
-      (0% UPI for new merchants until Mar 2027; needs its adapter), and Razorpay is ready to try
-      today (`scripts/connect-payments.ps1` with test keys). The escrow/aggregator arrangement is
-      still unestablished.
+- [x] **Cashfree adapter.** The free-for-the-platform provider from the research: no setup or
+      annual fee, test keys before KYC, 0% for new merchants. Selected by configuration like the
+      others; `scripts/connect-payments.ps1` defaults to it. Because Cashfree insists on the
+      payer's mobile number and email sign-in leaves an account without one, the order request
+      takes an optional phone and both clients ask for it when the API says so. The number is
+      remembered as `User.PaymentPhone` and editable on the new Profile page; it is deliberately
+      not the sign-in phone, which still needs a code sent to it (the item below).
+- [ ] **A real provider exercised for real.** Needs a Cashfree account (free, no KYC for test keys)
+      and its App ID and secret in `scripts/connect-payments.ps1`. Not a code item. The
+      escrow/aggregator arrangement is still unestablished.
 - [x] Flutter app: renter + host in one app. Sign-in, find a space, quote and book, run the
       session, wallet with credit purchase, vehicles, hosting, disputes. Device location and a
       map are the notable absences — the search screen takes coordinates for now.
@@ -102,8 +108,9 @@ Phases follow PRD §18. Items are ordered within each phase.
 
 ### What is actually left in Phase 0
 
-- Razorpay against the live API, which needs credentials and an escrow arrangement that does not
-  exist yet. Neither is a code problem, and it is the only item left.
+- A gateway against its real API: Cashfree (recommended) or Razorpay. Needs credentials and an
+  escrow arrangement that does not exist yet. Neither is a code problem, and it is the only item
+  left.
 - The payout leg of that arrangement with it: an operator records each transfer by hand, which is
   the honest shape until there is an aggregator to call.
 

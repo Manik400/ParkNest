@@ -15,10 +15,11 @@ public sealed class PaymentOptions
     public const string NoneProvider = "None";
     public const string SandboxProvider = "Sandbox";
     public const string RazorpayProvider = "Razorpay";
+    public const string CashfreeProvider = "Cashfree";
 
     /// <summary>Providers this build has an adapter for.</summary>
     public static readonly IReadOnlyList<string> KnownProviders =
-        new[] { NoneProvider, SandboxProvider, RazorpayProvider };
+        new[] { NoneProvider, SandboxProvider, CashfreeProvider, RazorpayProvider };
 
     /// <summary>"Sandbox" for the built-in local gateway, a provider name for real money, "None" to disable payments.</summary>
     public string Provider { get; set; } = NoneProvider;
@@ -66,6 +67,8 @@ public sealed class PaymentOptions
 
     public RazorpayGatewayOptions Razorpay { get; set; } = new();
 
+    public CashfreeGatewayOptions Cashfree { get; set; } = new();
+
     public bool IsProvider(string name) =>
         string.Equals(Provider?.Trim(), name, StringComparison.OrdinalIgnoreCase);
 
@@ -84,7 +87,9 @@ public sealed class PaymentOptions
     /// deliberately: it needs no credentials, and counting it here would let it stand in for a
     /// configured gateway in a check that exists to decide whether real money can move.
     /// </summary>
-    public bool IsConfigured => IsProvider(RazorpayProvider) && Razorpay.IsConfigured;
+    public bool IsConfigured =>
+        (IsProvider(RazorpayProvider) && Razorpay.IsConfigured)
+        || (IsProvider(CashfreeProvider) && Cashfree.IsConfigured);
 }
 
 public sealed class SandboxGatewayOptions
@@ -109,6 +114,38 @@ public sealed class RazorpayGatewayOptions
 
     public IReadOnlyList<string> MissingKeys =>
         new (string Name, string Value)[] { (nameof(KeyId), KeyId), (nameof(KeySecret), KeySecret), (nameof(WebhookSecret), WebhookSecret) }
+            .Where(k => string.IsNullOrWhiteSpace(k.Value))
+            .Select(k => k.Name)
+            .ToList();
+
+    public bool IsConfigured => MissingKeys.Count == 0;
+}
+
+/// <summary>
+/// Cashfree, the recommended first real provider (docs/payment-gateway-setup-fully-free-rnd.md §3.1):
+/// no setup fee, no annual fee, test keys before KYC, and a 0% window for new merchants. There is
+/// no separate webhook secret — Cashfree signs every webhook with the client secret.
+/// </summary>
+public sealed class CashfreeGatewayOptions
+{
+    /// <summary>The App ID from Developers → API keys in the Cashfree dashboard (<c>x-client-id</c>).</summary>
+    public string ClientId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The secret key from the same page (<c>x-client-secret</c>). Authenticates API calls and
+    /// signs webhooks. Must come from a secret store, never source control.
+    /// </summary>
+    public string ClientSecret { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional. Which methods the payment page offers, as Cashfree's comma-separated list
+    /// (<c>upi</c>, <c>cc</c>, <c>dc</c>, <c>nb</c>, …). Empty offers everything the account has
+    /// enabled. <c>upi</c> alone keeps every payment on the method with no card surcharge.
+    /// </summary>
+    public string PaymentMethods { get; set; } = string.Empty;
+
+    public IReadOnlyList<string> MissingKeys =>
+        new (string Name, string Value)[] { (nameof(ClientId), ClientId), (nameof(ClientSecret), ClientSecret) }
             .Where(k => string.IsNullOrWhiteSpace(k.Value))
             .Select(k => k.Name)
             .ToList();

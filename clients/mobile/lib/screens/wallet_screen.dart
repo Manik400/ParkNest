@@ -29,6 +29,10 @@ class _WalletScreenState extends State<WalletScreen> {
   late Future<({Wallet wallet, List<LedgerEntrySummary> entries, KycState kyc})> _data;
 
   bool _awaitingPayment = false;
+
+  /// The gateway refused to open a checkout without a mobile number, and the account has none.
+  /// Once set, the amount sheet asks for one alongside the amount.
+  bool _askPhone = false;
   bool _cashingOut = false;
 
   @override
@@ -121,16 +125,16 @@ class _WalletScreenState extends State<WalletScreen> {
     // payment poll below outlives the sheet by minutes.
     final api = Services.of(context);
 
-    final amount = await showModalBottomSheet<double>(
+    final topUp = await showModalBottomSheet<_TopUp>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const _AmountSheet(),
+      builder: (_) => _AmountSheet(askPhone: _askPhone),
     );
 
-    if (amount == null) return;
+    if (topUp == null) return;
 
     try {
-      final order = await api.startPayment(amount);
+      final order = await api.startPayment(topUp.amount, phone: topUp.phone);
 
       final checkoutUrl = order.checkoutUrl(AppConfig.apiBaseUrl);
 
@@ -173,10 +177,19 @@ class _WalletScreenState extends State<WalletScreen> {
 
       _load();
     } on ApiException catch (error) {
-      if (mounted) {
-        setState(() => _awaitingPayment = false);
+      if (!mounted) return;
+
+      setState(() => _awaitingPayment = false);
+
+      // The interceptor carries the API's message, not its problem type, so the phrase the
+      // PaymentPhoneRequiredException always uses is what identifies it. Ask once, then retry.
+      if (!_askPhone && error.message.toLowerCase().contains('mobile number')) {
+        setState(() => _askPhone = true);
         showError(context, error);
+        return _addCredits();
       }
+
+      showError(context, error);
     }
   }
 
@@ -358,10 +371,22 @@ class _HistoryRow extends StatelessWidget {
   }
 }
 
+/// What the amount sheet hands back: how much, and a mobile number when the gateway asked for one.
+class _TopUp {
+  const _TopUp(this.amount, this.phone);
+
+  final double amount;
+  final String? phone;
+}
+
 /// Amount picker. Presets rather than a bare field, because the common case is topping up enough
 /// for a few sessions and nobody wants to think in exact figures for that.
 class _AmountSheet extends StatefulWidget {
-  const _AmountSheet();
+  const _AmountSheet({required this.askPhone});
+
+  /// Also collect a mobile number: the gateway will not open a checkout without one and the
+  /// account has none on file. Off by default, because most accounts do.
+  final bool askPhone;
 
   @override
   State<_AmountSheet> createState() => _AmountSheetState();
@@ -369,18 +394,23 @@ class _AmountSheet extends StatefulWidget {
 
 class _AmountSheetState extends State<_AmountSheet> {
   final _controller = TextEditingController(text: '500');
+  final _phone = TextEditingController();
 
   static const _presets = [250.0, 500.0, 1000.0, 2500.0];
 
   @override
   void dispose() {
     _controller.dispose();
+    _phone.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final amount = double.tryParse(_controller.text) ?? 0;
+    final phone = _phone.text.trim();
+    // The API validates the number properly; this only stops an obviously empty one round-tripping.
+    final ready = amount > 0 && (!widget.askPhone || phone.length >= 10);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -413,11 +443,26 @@ class _AmountSheetState extends State<_AmountSheet> {
             onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(labelText: 'Amount', prefixText: '₹ '),
           ),
+          if (widget.askPhone) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _phone,
+              keyboardType: TextInputType.phone,
+              autofillHints: const [AutofillHints.telephoneNumber],
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Mobile number',
+                helperText: 'The payment provider needs one; it is not saved to your account.',
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           FilledButton(
             // The API enforces the real minimum and maximum; this only stops an obviously empty
             // submission from becoming a round trip.
-            onPressed: amount <= 0 ? null : () => Navigator.pop(context, amount),
+            onPressed: !ready
+                ? null
+                : () => Navigator.pop(context, _TopUp(amount, widget.askPhone ? phone : null)),
             child: const Text('Continue to payment'),
           ),
         ],

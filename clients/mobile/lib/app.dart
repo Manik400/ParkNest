@@ -19,6 +19,7 @@ import 'screens/kyc_screen.dart';
 import 'screens/listing_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/reputation_screen.dart';
+import 'screens/profile_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'screens/space_screen.dart';
 import 'screens/vehicles_screen.dart';
@@ -90,6 +91,7 @@ class _ParkNestAppState extends State<ParkNestApp> {
           ),
         ),
         GoRoute(path: '/vehicles', builder: (_, __) => const VehiclesScreen()),
+        GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
         GoRoute(path: '/kyc', builder: (_, __) => const KycScreen()),
         GoRoute(path: '/listings/new', builder: (_, __) => const AddListingScreen()),
         GoRoute(

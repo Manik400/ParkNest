@@ -54,6 +54,8 @@ class HomeMenuButton extends StatelessWidget {
       icon: const Icon(Icons.more_vert),
       onSelected: (value) async {
         switch (value) {
+          case 'profile':
+            context.push('/profile');
           case 'vehicles':
             context.push('/vehicles');
           case 'disputes':
@@ -65,6 +67,7 @@ class HomeMenuButton extends StatelessWidget {
         }
       },
       itemBuilder: (_) => const [
+        PopupMenuItem(value: 'profile', child: Text('Profile')),
         PopupMenuItem(value: 'vehicles', child: Text('My vehicles')),
         PopupMenuItem(value: 'disputes', child: Text('My disputes')),
         PopupMenuDivider(),

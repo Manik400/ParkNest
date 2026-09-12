@@ -66,6 +66,12 @@ export const routes: Routes = [
         title: 'Wallet · ParkNest',
       },
       {
+        path: 'profile',
+        loadComponent: () =>
+          import('./features/profile/profile.component').then((m) => m.ProfileComponent),
+        title: 'Profile · ParkNest',
+      },
+      {
         path: 'disputes',
         loadComponent: () =>
           import('./features/disputes/disputes.component').then((m) => m.DisputesComponent),

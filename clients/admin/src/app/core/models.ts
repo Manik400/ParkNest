@@ -195,6 +195,22 @@ export interface CheckoutPayload {
 
 export type PaymentOrderStatus = 'Created' | 'Paid' | 'Failed' | 'Cancelled';
 
+/** The signed-in account. `phone` and `email` are sign-in identities; `paymentPhone` only goes to the gateway. */
+export interface Profile {
+  id: string;
+  fullName: string;
+  phone: string | null;
+  email: string | null;
+  paymentPhone: string | null;
+  role: string;
+  kycStatus: string;
+}
+
+export interface UpdateProfileRequest {
+  fullName?: string;
+  paymentPhone?: string;
+}
+
 export interface PaymentOrderView {
   orderId: string;
   providerOrderId: string;

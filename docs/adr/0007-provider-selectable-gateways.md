@@ -87,8 +87,19 @@ So the choice of gateway has to be cheap to make and cheap to change. The code d
   same order, and it credits. When asked, Razorpay reports failed attempts as Pending rather than
   failing the order.
 - **Migration** `AddPaymentReconciliation` adds `payment_orders.ReturnTo` and `LastCheckedAt`.
-- **Not done yet:** adapters for Cashfree (the recommended first real provider) and PhonePe. The
-  founder picks the provider, then its adapter is added.
+- **Cashfree adapter (2026-09-12).** `CashfreePaymentGateway` is the recommended first real
+  provider: no setup or annual fee, test keys before KYC, 0% offer for new merchants. Where it
+  differs from Razorpay: the order is named with our own id, so `ProviderOrderId` is our order id;
+  amounts are rupees, not paise; the webhook signature is Base64 HMAC-SHA256 over
+  `timestamp + body` keyed with the client secret, so there is no separate webhook secret; and the
+  hosted page fetches the `payment_session_id` from Cashfree when it renders rather than storing it.
+  Cashfree requires the payer's mobile number, so `StartPaymentRequest` gained an optional `Phone`
+  for accounts without one; the adapter refuses (`PaymentPhoneRequiredException`) rather than
+  sending a made-up number, and both clients ask and retry. A typed number is kept as
+  `User.PaymentPhone` (migration `AddPaymentPhone`) and shown on a Profile page. It is not the
+  sign-in phone: that stays verified-only, since an unverified number that could sign in would
+  hand the account to whoever holds the number.
+- **Not done yet:** a PhonePe adapter, if its offer terms ever turn out to be worth it.
 - **Sandbox (ADR 0006) is unchanged in spirit.** Its secret moved to `Payments:Sandbox:WebhookSecret`
   and its checkout page returns through `/checkout/return`, so it exercises the same trip a real
   provider does.

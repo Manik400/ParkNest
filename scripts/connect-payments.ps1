@@ -7,16 +7,19 @@
 #   powershell -ExecutionPolicy Bypass -File scripts/connect-payments.ps1 -Reset   # back to the Sandbox
 #
 # Which provider, and what each costs: docs/payment-gateway-setup-fully-free-rnd.md
+#   Cashfree  - recommended. No setup or annual fee, test keys before KYC, 0% offer for new merchants.
+#   Razorpay  - fallback. Rs 199 + GST KYC fee, then 0% for 90 days.
 
 param([switch]$Reset)
 
 $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot '..\src\ParkNest.Api'
 
-$supported = @('Razorpay')
+$supported = @('Cashfree', 'Razorpay')
 
 $keys = @(
     'Payments:Provider', 'Payments:Mode', 'Payments:PublicBaseUrl',
+    'Payments:Cashfree:ClientId', 'Payments:Cashfree:ClientSecret', 'Payments:Cashfree:PaymentMethods',
     'Payments:Razorpay:KeyId', 'Payments:Razorpay:KeySecret', 'Payments:Razorpay:WebhookSecret'
 )
 
@@ -43,7 +46,8 @@ if ($Reset) {
     return
 }
 
-$provider = (Read-Host "Provider ($($supported -join ', '))").Trim()
+$provider = (Read-Host "Provider ($($supported -join ', ')) [Cashfree]").Trim()
+if (-not $provider) { $provider = 'Cashfree' }
 $provider = $supported | Where-Object { $_ -ieq $provider } | Select-Object -First 1
 if (-not $provider) { throw "Supported providers: $($supported -join ', ')." }
 
@@ -60,6 +64,35 @@ if (-not $base) { $base = 'https://localhost:7139' }
 if ($base -notmatch '^https?://') { throw "'$base' must start with http:// or https://." }
 
 switch ($provider) {
+    'Cashfree' {
+        Write-Host ''
+        Write-Host 'Cashfree dashboard (https://merchant.cashfree.com) > Developers > API keys.' -ForegroundColor Cyan
+        Write-Host '  Test keys exist as soon as the account does; Live keys appear once KYC is approved.'
+        $clientId = (Read-Host 'Cashfree App ID (x-client-id)').Trim()
+        if (-not $clientId) { throw 'The App ID is required.' }
+        if ($mode -eq 'Live' -and $clientId -like 'TEST*') { throw 'That is a sandbox App ID; run again with Mode=Test if you mean it.' }
+
+        $clientSecret = Read-Hidden 'Cashfree secret key (hidden)'
+        if (-not $clientSecret) { throw 'The secret key is required.' }
+        if ($mode -eq 'Test' -and $clientSecret -like 'cfsk_ma_prod_*') { throw 'That is a production secret; run again with Mode=Live if you mean it.' }
+        if ($mode -eq 'Live' -and $clientSecret -like 'cfsk_ma_test_*') { throw 'That is a sandbox secret; Mode=Live needs a cfsk_ma_prod_ key.' }
+
+        $methods = (Read-Host 'Payment methods to offer, e.g. upi (empty = everything enabled on the account)').Trim()
+
+        Set-Secret 'Payments:Cashfree:ClientId' $clientId
+        Set-Secret 'Payments:Cashfree:ClientSecret' $clientSecret
+        $clientSecret = $null
+        if ($methods) { Set-Secret 'Payments:Cashfree:PaymentMethods' $methods }
+        else { dotnet user-secrets remove 'Payments:Cashfree:PaymentMethods' --project $project | Out-Null }
+
+        Write-Host ''
+        Write-Host 'In the Cashfree dashboard (Developers > Webhooks > Payment Gateway), add a webhook:' -ForegroundColor Cyan
+        Write-Host "  URL:     $base/api/payments/webhook   (must be https; a tunnel URL for local development)"
+        Write-Host '  Events:  Payment success, Payment failed'
+        Write-Host '  Version: 2026-01-01'
+        Write-Host '  No secret to enter: Cashfree signs webhooks with the secret key above.'
+        Write-Host 'Without a reachable webhook the API still credits: it asks Cashfree itself when the browser returns.'
+    }
     'Razorpay' {
         $keyId = (Read-Host 'Razorpay Key Id (rzp_test_... or rzp_live_...)').Trim()
         if ($mode -eq 'Test' -and $keyId -like 'rzp_live_*') { throw 'That is a live key; run again with Mode=Live if you mean it.' }

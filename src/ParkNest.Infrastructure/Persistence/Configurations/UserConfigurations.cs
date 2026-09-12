@@ -16,6 +16,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         // and both unique indexes admit any number of nulls.
         builder.Property(u => u.Phone).HasMaxLength(20);
         builder.Property(u => u.Email).HasMaxLength(254);
+        builder.Property(u => u.PaymentPhone).HasMaxLength(20);
 
         builder.HasIndex(u => u.Phone).IsUnique();
         builder.HasIndex(u => u.Email).IsUnique();

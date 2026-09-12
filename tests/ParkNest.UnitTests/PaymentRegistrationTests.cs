@@ -77,6 +77,59 @@ public sealed class PaymentRegistrationTests
         Gateway(Build("Development", Razorpay)).Should().BeOfType<RazorpayPaymentGateway>();
     }
 
+    private static readonly (string, string)[] Cashfree =
+    {
+        ("Provider", "Cashfree"),
+        ("PublicBaseUrl", "https://localhost:7139"),
+        ("Cashfree:ClientId", "TEST1234567890"),
+        ("Cashfree:ClientSecret", "cfsk_ma_test_secret")
+    };
+
+    private static (string, string)[] WithCashfree(params (string, string)[] overrides) =>
+        Cashfree.Where(s => overrides.All(o => o.Item1 != s.Item1)).Concat(overrides).ToArray();
+
+    [Fact]
+    public void A_configured_cashfree_is_what_you_get()
+    {
+        Gateway(Build("Development", Cashfree)).Should().BeOfType<CashfreePaymentGateway>();
+    }
+
+    [Fact]
+    public void A_half_configured_cashfree_names_the_missing_key_and_needs_no_webhook_secret()
+    {
+        var act = () => Build("Development", WithCashfree(("Cashfree:ClientSecret", "")));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Payments:Cashfree:ClientSecret*");
+    }
+
+    [Fact]
+    public void Cashfree_sandbox_credentials_under_live_mode_are_refused()
+    {
+        var act = () => Build("Development", WithCashfree(("Mode", "Live")));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*sandbox*");
+    }
+
+    [Fact]
+    public void A_cashfree_production_secret_under_test_mode_is_refused()
+    {
+        var act = () => Build("Development", WithCashfree(("Cashfree:ClientId", "CF123"), ("Cashfree:ClientSecret", "cfsk_ma_prod_secret")));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*production key*");
+    }
+
+    [Fact]
+    public void Live_cashfree_on_https_starts_in_production()
+    {
+        var provider = Build("Production", WithCashfree(
+            ("Mode", "Live"),
+            ("Cashfree:ClientId", "CF123"),
+            ("Cashfree:ClientSecret", "cfsk_ma_prod_secret"),
+            ("PublicBaseUrl", "https://api.parknest.test")));
+
+        Gateway(provider).Should().BeOfType<CashfreePaymentGateway>();
+    }
+
     [Theory]
     [InlineData("Stripe")]
     [InlineData("PayPal")]

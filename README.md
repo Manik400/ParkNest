@@ -30,7 +30,7 @@ degrades cleanly without them.
 | Sessions | Refresh tokens, rotating, with replay detection; sign-out revokes server-side |
 | Rate limiting | Per phone number and per caller, on the OTP endpoints and the payment webhook |
 | Availability windows and blackouts | Enforced at booking, per-space time zone |
-| Credit purchase (payments) | Built. Sandbox gateway runs locally with no account; Razorpay wired for real money |
+| Credit purchase (payments) | Built. Sandbox gateway runs locally with no account; Cashfree and Razorpay wired for real money |
 | Disputes | Raise with photo evidence, review, uphold or reject; upholding posts a compensating transaction |
 | Payouts | Cash-out from the app, gated on KYC and trust score; recording the transfer paid or failed — failure refunds the host |
 | Listing photos | Upload, list, delete, in both clients. Local disk by default, behind a storage interface |
@@ -193,6 +193,8 @@ webhook endpoint, which verifies it exactly as it would a live one. No money mov
 ```jsonc
 // src/ParkNest.Api/appsettings.json (+ dotnet user-secrets for keys)
 "Payments": { "Provider": "Sandbox" }   // local, free, refused in Production
+"Payments": { "Provider": "Cashfree", "Mode": "Test", "PublicBaseUrl": "https://localhost:7139",
+              "Cashfree": { "ClientId": "TEST…", "ClientSecret": "cfsk_ma_test_…", "PaymentMethods": "upi" } }
 "Payments": { "Provider": "Razorpay", "Mode": "Test", "PublicBaseUrl": "https://localhost:7139",
               "Razorpay": { "KeyId": "rzp_test_…", "KeySecret": "…", "WebhookSecret": "…" } }
 "Payments": { "Provider": "None" }      // payment endpoints report "not configured"
@@ -202,16 +204,36 @@ webhook endpoint, which verifies it exactly as it would a live one. No money mov
 In short:
 - Nothing settles real money for free forever.
 - Stripe and PayPal can't be used by an Indian individual.
-- The cheapest route is a gateway's zero-fee window for new merchants: Cashfree 0% UPI until Mar
-  2027 (adapter to come), or Razorpay 0% for 90 days (adapter ready).
+- The cheapest route is a gateway's zero-fee window for new merchants: **Cashfree** (no setup or
+  annual fee, 0% until Mar 2027 if eligible) is the default and Razorpay (₹199 + GST KYC fee, then
+  0% for 90 days) the fallback. Both adapters are in the code; the choice is configuration.
 
-To connect a provider, run the script below. It asks for the keys with hidden input, stores them in
-`dotnet user-secrets`, and prints the webhook URL to paste into the provider's dashboard. `-Reset`
-goes back to the sandbox.
+### Connecting Cashfree (free for the platform)
+
+1. Sign up at <https://merchant.cashfree.com> with an email and phone. No KYC is needed for test
+   keys; KYC (PAN, bank account) is needed only to go live.
+2. Developers → API keys: copy the **App ID** and **secret key** for the Test environment.
+3. Run the script below and paste them. It stores the keys in `dotnet user-secrets`, never in
+   the repo, and prints the webhook URL for the dashboard. `-Reset` goes back to the sandbox.
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/connect-payments.ps1
 ```
+
+4. Restart the API. **Add credits** now opens Cashfree's sandbox payment page. The quickest test
+   payment is **Net Banking → any bank**: Cashfree's simulator opens, asks for the OTP `111000`,
+   and lets you pick SUCCESS, FAILED or USER_DROPPED. No money moves. (Verified 2026-09-12: the
+   return trip credited the wallet with no webhook configured.)
+5. Webhooks are optional in development: Cashfree accepts only an https URL it can reach, and the
+   API credits the order anyway by asking Cashfree when the browser comes back. To see webhooks
+   themselves, run `cloudflared tunnel --url https://localhost:7139` and give the script that URL.
+
+Cashfree insists on the payer's mobile number. An account that signed in by email has none, so the
+API answers the first attempt with a `PaymentPhoneRequiredException` problem and both clients
+then ask for a number and retry. The number is saved on the account as `PaymentPhone` and reused,
+and can be changed on the **Profile** page (`/api/users/me`). It is only ever handed to the
+gateway: it is not a sign-in number, because an unverified number that could sign in would let
+whoever owns it take the account.
 
 How a payment is confirmed ([ADR 0007](docs/adr/0007-provider-selectable-gateways.md)):
 - **Checkout:** every checkout payload carries a `checkout_url`. It is the provider's hosted page, or

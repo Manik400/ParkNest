@@ -32,6 +32,7 @@ import { AuthService } from '../core/auth.service';
         </nav>
 
         <div class="footer">
+          <a routerLink="/profile" routerLinkActive="active">Profile</a>
           <div class="muted role">{{ auth.role() }}</div>
           <button type="button" (click)="auth.logout()">Sign out</button>
         </div>

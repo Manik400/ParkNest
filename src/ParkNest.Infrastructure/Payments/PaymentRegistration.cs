@@ -38,6 +38,12 @@ public static class PaymentRegistration
             return services;
         }
 
+        if (payments.IsProvider(PaymentOptions.CashfreeProvider))
+        {
+            services.AddHttpClient<IPaymentGateway, CashfreePaymentGateway>(http => http.Timeout = HttpTimeout);
+            return services;
+        }
+
         if (payments.IsSandbox)
         {
             // Singleton, and it has to be: when no WebhookSecret is configured the sandbox
@@ -124,6 +130,47 @@ public static class PaymentRegistration
         if (payments.IsProvider(PaymentOptions.RazorpayProvider))
         {
             ValidateRazorpay(payments);
+        }
+
+        if (payments.IsProvider(PaymentOptions.CashfreeProvider))
+        {
+            ValidateCashfree(payments);
+        }
+    }
+
+    private static void ValidateCashfree(PaymentOptions payments)
+    {
+        var missing = payments.Cashfree.MissingKeys;
+
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Payments:Provider=Cashfree needs {string.Join(", ", missing.Select(k => $"Payments:Cashfree:{k}"))}. " +
+                "Run scripts/connect-payments.ps1, or leave Provider=Sandbox to develop without an account.");
+        }
+
+        RequirePublicBaseUrl(payments, PaymentOptions.CashfreeProvider);
+
+        // Cashfree's secrets name their own environment (cfsk_ma_test_... / cfsk_ma_prod_...), and
+        // the sandbox App ID starts with TEST. Disagreeing with Mode is a copy-paste mistake either
+        // way, and the API would only report it as a 401 on the first recharge.
+        var clientId = payments.Cashfree.ClientId.Trim();
+        var secret = payments.Cashfree.ClientSecret.Trim();
+
+        var looksLikeTest = clientId.StartsWith("TEST", StringComparison.Ordinal)
+                            || secret.StartsWith("cfsk_ma_test_", StringComparison.Ordinal);
+        var looksLikeLive = secret.StartsWith("cfsk_ma_prod_", StringComparison.Ordinal);
+
+        if (payments.IsLive && looksLikeTest)
+        {
+            throw new InvalidOperationException(
+                "Payments:Mode=Live but the Cashfree credentials are sandbox ones (TEST... / cfsk_ma_test_...).");
+        }
+
+        if (!payments.IsLive && looksLikeLive)
+        {
+            throw new InvalidOperationException(
+                "Payments:Mode=Test but Payments:Cashfree:ClientSecret is a production key (cfsk_ma_prod_...). Set Mode=Live deliberately if that is intended.");
         }
     }
 

@@ -91,6 +91,15 @@ import {
               <label for="amount">Amount</label>
               <input id="amount" name="amount" type="number" min="100" step="100" [(ngModel)]="topUpAmount" />
             </div>
+            @if (phoneNeeded()) {
+              <!-- Shown only after the gateway asked for it: most accounts have a number on file.
+                   Saved on the account once used, and editable on the profile page. -->
+              <div class="amount">
+                <label for="phone">Mobile number</label>
+                <input id="phone" name="phone" type="tel" inputmode="tel" placeholder="10 digits"
+                       autocomplete="tel" [(ngModel)]="topUpPhone" required />
+              </div>
+            }
             <button class="primary" type="submit" [disabled]="paying() || settling()">
               {{ paying() ? 'Starting…' : 'Add credits' }}
             </button>
@@ -226,6 +235,9 @@ export class WalletComponent implements OnInit {
   readonly error = signal<string | null>(null);
 
   topUpAmount = 500;
+  topUpPhone = '';
+  /** The gateway refused to open a checkout without a mobile number, and the account has none. */
+  readonly phoneNeeded = signal(false);
   readonly paying = signal(false);
   readonly settling = signal(false);
   readonly paymentError = signal<string | null>(null);
@@ -246,7 +258,7 @@ export class WalletComponent implements OnInit {
     this.pendingOrder.set(null);
     this.outcome.set(null);
 
-    this.api.startPayment(this.topUpAmount).subscribe({
+    this.api.startPayment(this.topUpAmount, this.phoneNeeded() ? this.topUpPhone.trim() : undefined).subscribe({
       next: (order) => {
         this.paying.set(false);
 
@@ -264,6 +276,13 @@ export class WalletComponent implements OnInit {
       },
       error: (err: Error) => {
         this.paying.set(false);
+
+        // The API's problem type is not carried through the interceptor, only its message, so
+        // the phrase the PaymentPhoneRequiredException always uses is what identifies it here.
+        if (/mobile number/i.test(err.message) && !this.phoneNeeded()) {
+          this.phoneNeeded.set(true);
+        }
+
         // With no gateway configured the API says so plainly; surface that rather than a generic
         // failure, because it is a deployment gap and not the user's mistake.
         this.paymentError.set(err.message);

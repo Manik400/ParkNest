@@ -88,14 +88,33 @@ class Api {
   ///
   /// `returnTo: 'app'` makes the browser's trip end on a "return to the app" page rather than the
   /// admin site's wallet, which a phone cannot reach; the app learns the outcome by polling.
-  Future<StartPaymentResult> startPayment(double amount) async => StartPaymentResult.fromJson(
-        _map(await client.post('/api/payments/orders', body: {'amount': amount, 'returnTo': 'app'})),
+  ///
+  /// [phone] is only for a gateway that insists on a mobile number when the account has none on
+  /// file; the API says so with a problem whose type is `PaymentPhoneRequiredException`.
+  Future<StartPaymentResult> startPayment(double amount, {String? phone}) async =>
+      StartPaymentResult.fromJson(
+        _map(await client.post('/api/payments/orders', body: {
+          'amount': amount,
+          'returnTo': 'app',
+          if (phone != null && phone.isNotEmpty) 'phone': phone,
+        })),
       );
 
   /// Where an order stands. Polled after checkout rather than trusting the return trip — coming
   /// back from the gateway proves the user pressed a button, not that the money arrived.
   Future<PaymentOrderView> paymentOrder(String orderId) async =>
       PaymentOrderView.fromJson(_map(await client.get('/api/payments/orders/$orderId')));
+
+  // --- Profile ------------------------------------------------------------
+
+  Future<Profile> myProfile() async => Profile.fromJson(_map(await client.get('/api/users/me')));
+
+  /// A null field is left alone; an empty [paymentPhone] clears the saved number.
+  Future<Profile> updateProfile({String? fullName, String? paymentPhone}) async =>
+      Profile.fromJson(_map(await client.put('/api/users/me', body: {
+        if (fullName != null) 'fullName': fullName,
+        if (paymentPhone != null) 'paymentPhone': paymentPhone,
+      })));
 
   // --- Vehicles -----------------------------------------------------------
 

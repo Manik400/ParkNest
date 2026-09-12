@@ -25,7 +25,9 @@ import {
   Reputation,
   StartPaymentResult,
   PricingBandChange,
+  Profile,
   SetBandActiveRequest,
+  UpdateProfileRequest,
   UpsertBandRequest,
   Vehicle,
   Wallet,
@@ -36,6 +38,16 @@ import {
 export class ApiService {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiBaseUrl;
+
+  // --- Profile --------------------------------------------------------------
+
+  getProfile(): Observable<Profile> {
+    return this.http.get<Profile>(`${this.base}/api/users/me`);
+  }
+
+  updateProfile(request: UpdateProfileRequest): Observable<Profile> {
+    return this.http.put<Profile>(`${this.base}/api/users/me`, request);
+  }
 
   // --- Wallet ---------------------------------------------------------------
 
@@ -72,11 +84,13 @@ export class ApiService {
    * Starts a credit purchase. Issues no credits - the wallet only moves when the gateway's
    * signed webhook confirms the money actually arrived.
    */
-  startPayment(amount: number): Observable<StartPaymentResult> {
+  startPayment(amount: number, phone?: string): Observable<StartPaymentResult> {
     // 'admin' tells the API to send the browser back to this site's wallet page after checkout.
+    // The phone is only for a gateway that insists on one when the account has none on file.
     return this.http.post<StartPaymentResult>(`${this.base}/api/payments/orders`, {
       amount,
       returnTo: 'admin',
+      ...(phone ? { phone } : {}),
     });
   }
 

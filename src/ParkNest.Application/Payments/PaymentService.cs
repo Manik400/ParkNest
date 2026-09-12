@@ -13,10 +13,13 @@ public interface IPaymentService
     /// <summary>
     /// Starts a credit purchase for the authenticated caller. <paramref name="returnTo"/> names the
     /// client that started it ("admin", "app"), which decides where the browser lands afterwards.
+    /// <paramref name="phone"/> is a mobile number typed at checkout, for a gateway that requires
+    /// one when the account has none on file; it is handed to the gateway and not stored.
     /// </summary>
     Task<StartPaymentResult> StartAsync(
         decimal amount,
         string? returnTo = null,
+        string? phone = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -86,10 +89,12 @@ public sealed class PaymentService : IPaymentService
     public async Task<StartPaymentResult> StartAsync(
         decimal amount,
         string? returnTo = null,
+        string? phone = null,
         CancellationToken cancellationToken = default)
     {
         var userId = _currentUser.RequireUserId();
         amount = Money.Round(amount);
+        var typedPhone = NormalisePhone(phone);
 
         if (amount < _platform.MinimumRechargeCredits)
         {
@@ -110,8 +115,28 @@ public sealed class PaymentService : IPaymentService
             throw new DomainException($"Unknown return target '{target}'.");
         }
 
-        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        // Tracked, because a number typed at checkout is remembered on the account below.
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
         var now = _clock.UtcNow;
+
+        // The sign-in number first, then the one saved for payments, then one typed just now —
+        // which is saved, so an email-only account is asked exactly once.
+        var customerPhone = user?.Phone;
+
+        if (string.IsNullOrWhiteSpace(customerPhone))
+        {
+            customerPhone = user?.PaymentPhone;
+        }
+
+        if (string.IsNullOrWhiteSpace(customerPhone) && typedPhone is not null)
+        {
+            customerPhone = typedPhone;
+
+            if (user is not null)
+            {
+                user.PaymentPhone = typedPhone;
+            }
+        }
 
         var order = new PaymentOrder
         {
@@ -130,7 +155,7 @@ public sealed class PaymentService : IPaymentService
                 order.Currency,
                 new PaymentCustomer(
                     userId,
-                    user?.Phone,
+                    customerPhone,
                     user?.Email,
                     string.IsNullOrWhiteSpace(user?.FullName) ? null : user.FullName),
                 _urls.ReturnUrl(order.Id),
@@ -214,6 +239,9 @@ public sealed class PaymentService : IPaymentService
 
         return new WebhookResult(true, result.Message);
     }
+
+    /// <summary>Digits only, ten to fifteen of them, as sign-in stores a number; null when nothing was typed.</summary>
+    private static string? NormalisePhone(string? phone) => Users.ProfileService.NormalisePhone(phone);
 
     private bool IsDueForReconcile(PaymentOrder order)
     {

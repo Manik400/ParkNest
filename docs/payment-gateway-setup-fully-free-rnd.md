@@ -4,7 +4,7 @@
 
 **Question:** how to load the ParkNest credit wallet with real money at zero cost, ideally with open-source software. Is Stripe an option, and which provider is best?
 
-**Status:** research complete. The provider pick is the founder's decision (see [Decision](#8-decision)). Implementation of a provider-selectable gateway follows this document.
+**Status:** research complete; the provider-selectable gateway and the **Cashfree adapter are implemented** (ADR 0007). What is left is an account: sign up, paste the test keys into `scripts/connect-payments.ps1`, and confirm the 0% offer applies before going live.
 
 > Prices and offers change. Everything below was checked on the date above against the sources in [§11](#11-sources).
 > Anything marked **(unverified)** could not be confirmed from an official page. Confirm it in the provider's dashboard or with their sales team before relying on it.

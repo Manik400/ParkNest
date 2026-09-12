@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<Notifications.INotificationService, Notifications.NotificationService>();
         services.AddScoped<Notifications.IDeviceTokenService, Notifications.DeviceTokenService>();
         services.AddScoped<Users.IKycService, Users.KycService>();
+        services.AddScoped<Users.IProfileService, Users.ProfileService>();
 
         // One class handling several events is registered once per event type. Registered as the
         // interface rather than the class so the bus can resolve every subscriber to a given fact

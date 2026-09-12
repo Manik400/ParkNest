@@ -102,6 +102,32 @@ public sealed class PaymentTests : IDisposable
     }
 
     [Fact]
+    public async Task A_number_typed_at_checkout_fills_a_gap_on_the_account_and_never_overrides_the_account()
+    {
+        var user = await _h.AddUserAsync(UserRole.Both);
+
+        await _payments.StartAsync(500m, phone: "+91 98765-00000");
+        _gateway.LastRequest!.Customer.Phone.Should().Be(user.Phone, "the account's own number wins");
+
+        user.Phone = null;
+        await _h.Db.SaveChangesAsync();
+
+        await _payments.StartAsync(500m);
+        _gateway.LastRequest!.Customer.Phone.Should().BeNull("nothing on file and nothing typed: the gateway decides");
+
+        await _payments.StartAsync(500m, phone: "+91 98765-00000");
+        _gateway.LastRequest!.Customer.Phone.Should().Be("919876500000", "digits only, as sign-in stores one");
+        (await _h.Db.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id)).PaymentPhone
+            .Should().Be("919876500000", "typed once, remembered for payments");
+
+        await _payments.StartAsync(500m);
+        _gateway.LastRequest!.Customer.Phone.Should().Be("919876500000", "the saved payment phone is used without asking again");
+
+        var act = () => _payments.StartAsync(500m, phone: "12345");
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
     public async Task The_client_that_started_the_payment_is_recorded_on_the_order()
     {
         await _h.AddUserAsync(UserRole.Both);

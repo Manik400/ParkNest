@@ -73,6 +73,9 @@ class ApiClient {
   Future<dynamic> post(String path, {Object? body}) =>
       _send(() => _dio.post<dynamic>(path, data: body, options: _auth()));
 
+  Future<dynamic> put(String path, {Object? body}) =>
+      _send(() => _dio.put<dynamic>(path, data: body, options: _auth()));
+
   Future<dynamic> delete(String path) =>
       _send(() => _dio.delete<dynamic>(path, options: _auth()));
 

@@ -24,7 +24,7 @@ public sealed class PaymentsController : ControllerBase
     public async Task<ActionResult<StartPaymentResult>> Start(
         [FromBody] StartPaymentRequest request,
         CancellationToken cancellationToken) =>
-        Ok(await _payments.StartAsync(request.Amount, request.ReturnTo, cancellationToken));
+        Ok(await _payments.StartAsync(request.Amount, request.ReturnTo, request.Phone, cancellationToken));
 
     /// <summary>
     /// Where an order stands. The client polls this after checkout rather than believing the
@@ -69,4 +69,9 @@ public sealed class PaymentsController : ControllerBase
 /// The client starting the payment: "admin" (the default) or "app". Decides where the browser
 /// lands after checkout.
 /// </param>
-public sealed record StartPaymentRequest(decimal Amount, string? ReturnTo = null);
+/// <param name="Phone">
+/// Optional. A mobile number for the gateway, for accounts that have none on file - some
+/// providers refuse an order without one, and the API then answers with a
+/// <c>PaymentPhoneRequiredException</c> problem so the client can ask and retry.
+/// </param>
+public sealed record StartPaymentRequest(decimal Amount, string? ReturnTo = null, string? Phone = null);
