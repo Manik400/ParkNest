@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -337,11 +338,31 @@ if (!storageOptions.IsDisabled)
     });
 }
 
+// The admin site, when a build of it has been placed in wwwroot — the Docker image does this, so
+// one hosted service serves both and the site talks to the API same-origin: no CORS, no hostname
+// baked into the bundle (clients/admin/src/environments/environment.production.ts).
+var adminSiteIndex = Path.Combine(app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot"), "index.html");
+var servesAdminSite = File.Exists(adminSiteIndex);
+
+if (servesAdminSite)
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<ParkNestHub>("/hubs/parknest");
+
+if (servesAdminSite)
+{
+    // Deep links into the Angular app (/wallet?orderId=…) land here on a fresh load and need the
+    // shell; everything the API itself owns is excluded so a wrong API path still 404s as JSON
+    // rather than answering with a page.
+    app.MapFallbackToFile("{*path:regex(^(?!api/|checkout/|sandbox/|hubs/|metrics|health|media/|swagger).*$)}", "index.html");
+}
 
 // Anonymous, and therefore not to be exposed publicly: the counters describe booking volume and
 // revenue. Reachable from inside the network where Prometheus scrapes it, and firewalled from
@@ -349,6 +370,18 @@ app.MapHub<ParkNestHub>("/hubs/parknest");
 app.MapMetrics("/metrics").AllowAnonymous();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+
+// Where there is no shell to run `dotnet ef database update` from — a hosted container — the
+// process applies its own migrations on the way up. Off by default: locally and in CI the
+// migration is an explicit step, and two instances starting at once must not both try.
+if (builder.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ParkNest.Infrastructure.Persistence.ParkNestDbContext>();
+    var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+    app.Logger.LogInformation("Applying {Count} pending migration(s): {Migrations}", pending.Count, string.Join(", ", pending));
+    await db.Database.MigrateAsync();
+}
 
 app.Run();
 

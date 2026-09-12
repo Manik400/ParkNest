@@ -183,6 +183,13 @@ Grafana at <http://localhost:3000> opens on the dashboard without a login. It sc
 the host, so start the API first — details and the one number worth alerting on are in
 [ops/](ops/README.md).
 
+## Hosting it for free
+
+One Render web service (API with the admin site built in, from the [`Dockerfile`](Dockerfile))
+plus a Neon Postgres database. No card, no KYC. The walkthrough, including every variable the
+[`render.yaml`](render.yaml) blueprint asks for, is in
+[docs/hosting-render-neon.md](docs/hosting-render-neon.md).
+
 ## Buying credits
 
 Development runs on the built-in **sandbox gateway** — no merchant account, no credentials, no
