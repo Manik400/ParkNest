@@ -42,8 +42,10 @@ public static class DependencyInjection
         ValidateAuthOptions(configuration, environment);
         ValidateKycOptions(configuration, environment);
 
-        var connectionString = configuration.GetConnectionString("ParkNest")
-            ?? throw new InvalidOperationException("Connection string 'ParkNest' is not configured.");
+        // Either Host=…;Database=… or the postgresql:// URL a hosted provider's dashboard gives.
+        var connectionString = PostgresConnectionString.Normalise(
+            configuration.GetConnectionString("ParkNest")
+            ?? throw new InvalidOperationException("Connection string 'ParkNest' is not configured."));
 
         services.AddDbContext<ParkNestDbContext>(options => options.UseNpgsql(connectionString));
         services.AddScoped<IParkNestDbContext>(sp => sp.GetRequiredService<ParkNestDbContext>());

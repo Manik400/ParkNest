@@ -31,7 +31,7 @@ One Back4App container runs the API with the admin site built into it (from the
    ```
 
 2. **Connect**, with connection pooling **off** (the host must not contain `-pooler`; migrations
-   need a direct connection). Shape it for .NET:
+   need a direct connection). Paste Neon's `postgresql://…` URL as it is, or the keyword form:
 
    ```
    Host=ep-xxxx.region.aws.neon.tech;Database=neondb;Username=neondb_owner;Password=…;SSL Mode=Require;Trust Server Certificate=true
