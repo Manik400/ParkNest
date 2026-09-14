@@ -47,41 +47,35 @@ deploy. So the first deploy runs with payments switched off, and the second turn
 3. Pick the repository, branch `claude/payment-gateway-setup-1cba14`, root directory `./`
    (the Dockerfile is at the repo root). Port **8080** (the Dockerfile's `EXPOSE 8080`; enter it
    if the form asks).
-4. Environment variables. Generate the three random values on Windows with:
+4. Environment variables. **Back4App accepts names in UPPERCASE letters, digits and underscores
+   only**, so the names below are uppercase; .NET reads configuration case-insensitively, so they
+   are the same settings. Everything that is not a secret is baked into the image (the
+   [`Dockerfile`](../Dockerfile) sets `ASPNETCORE_ENVIRONMENT=Staging`, and
+   [`appsettings.Staging.json`](../src/ParkNest.Api/appsettings.Staging.json) turns on SMTP,
+   the memory cache and migrations at startup), so only these seven are added by hand.
+
+   Generate the three random values on Windows, one run each:
 
    ```bash
    powershell -Command "[Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }) -as [byte[]])"
    ```
 
-   Run it three times, one value each. Then add:
-
    ```
-   ASPNETCORE_ENVIRONMENT=Staging
-   ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
-   Database__MigrateOnStartup=true
-   ConnectionStrings__ParkNest=<Neon direct connection string>
-   Auth__SigningKey=<random value 1>
-   Auth__OtpPepper=<random value 2>
-   Kyc__Pepper=<random value 3>
-   Auth__AdminEmails__0=<your email>
-   Email__Provider=Smtp
-   Email__Host=smtp.gmail.com
-   Email__Port=587
-   Email__Security=StartTls
-   Email__Username=<your gmail address>
-   Email__Password=<16-character Gmail App Password>
-   Email__FromAddress=<your gmail address>
-   Payments__Provider=None
-   Storage__Provider=Local
-   Storage__LocalRoot=/app/media
-   Cache__Provider=Memory
-   Messaging__Provider=InProcess
-   Push__Provider=None
+   CONNECTIONSTRINGS__PARKNEST=<Neon direct connection string>
+   AUTH__SIGNINGKEY=<random value 1>
+   AUTH__OTPPEPPER=<random value 2>
+   KYC__PEPPER=<random value 3>
+   AUTH__ADMINEMAILS__0=<your email>
+   EMAIL__USERNAME=<your gmail address>
+   EMAIL__PASSWORD=<16-character Gmail App Password>
    ```
 
    The Gmail settings are required, not optional. Outside Development the API never registers the
    development sender that returns the code in the response, so without SMTP there is no way to
-   sign in and startup stops with "No sign-in channel is configured".
+   sign in and startup stops with "No sign-in channel is configured". Mail is sent from the Gmail
+   address itself; set `EMAIL__FROMADDRESS` only to use a different sender.
+
+   Health check path: `/health`.
 5. Deploy. The first build takes about 10 minutes (Angular, then .NET). The log should end with
    "Applying N pending migration(s)" and "Now listening on: http://[::]:8080".
 6. Copy the app URL Back4App shows. Open `<url>/health` → `{"status":"ok"}`, then `<url>/`, which
@@ -89,16 +83,15 @@ deploy. So the first deploy runs with payments switched off, and the second turn
 
 ## 3. Second deploy: Cashfree on
 
-In the app's settings, change `Payments__Provider` and add the rest, then redeploy:
+In the app's settings, add these six, then redeploy:
 
 ```
-Payments__Provider=Cashfree
-Payments__Mode=Test
-Payments__PublicBaseUrl=<app URL, https, no trailing slash>
-Payments__ReturnUrls__admin=<app URL>/wallet
-Payments__Cashfree__ClientId=<Cashfree test App ID>
-Payments__Cashfree__ClientSecret=<Cashfree test secret>
-Payments__Cashfree__PaymentMethods=upi
+PAYMENTS__PROVIDER=Cashfree
+PAYMENTS__PUBLICBASEURL=<app URL, https, no trailing slash>
+PAYMENTS__RETURNURLS__ADMIN=<app URL>/wallet
+PAYMENTS__CASHFREE__CLIENTID=<Cashfree test App ID>
+PAYMENTS__CASHFREE__CLIENTSECRET=<Cashfree test secret>
+PAYMENTS__CASHFREE__PAYMENTMETHODS=upi
 ```
 
 Then Wallet → Add credits opens Cashfree's sandbox page. For a quick test pay with Net Banking →
@@ -127,7 +120,7 @@ flutter build apk --dart-define=PARKNEST_API_BASE_URL=<app URL>
 
 ## Going live later
 
-Production needs Cashfree KYC and live keys (`Payments__Mode=Live`, `cfsk_ma_prod_…`),
+Production needs Cashfree KYC and live keys (`PAYMENTS__MODE=Live`, `cfsk_ma_prod_…`),
 `ASPNETCORE_ENVIRONMENT=Production`, a current account in the business name, and the policy pages
 Cashfree asks for. Read [payment-gateway-setup-fully-free-rnd.md §7](payment-gateway-setup-fully-free-rnd.md#7-legal-and-compliance-notes-read-before-going-live)
 first. [hosting-render-neon.md](hosting-render-neon.md) describes the same setup on Render, for
