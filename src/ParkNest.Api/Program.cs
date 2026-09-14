@@ -365,7 +365,12 @@ if (servesAdminSite)
     // Anonymous, because the authorization fallback policy would otherwise answer 401 before the
     // page loads: the site is a shell that signs in by itself, and a payment returning to
     // /wallet?orderId=… arrives on a fresh load with no bearer token.
-    app.MapFallbackToFile("{*path:regex(^(?!api/|checkout/|sandbox/|hubs/|metrics|health|media/|swagger).*$)}", "index.html")
+    //
+    // `nonfile` keeps anything with a file extension (main-*.js, styles-*.css, favicon.ico) out
+    // of this route. Routing runs before the static file middleware, and that middleware stands
+    // aside for any request that already matched an endpoint — without the constraint every
+    // script was answered with index.html and the site loaded as a blank page.
+    app.MapFallbackToFile("{*path:nonfile:regex(^(?!api/|checkout/|sandbox/|hubs/|metrics|health|media/|swagger).*$)}", "index.html")
         .AllowAnonymous();
 }
 
