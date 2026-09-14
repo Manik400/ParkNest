@@ -183,13 +183,13 @@ Grafana at <http://localhost:3000> opens on the dashboard without a login. It sc
 the host, so start the API first — details and the one number worth alerting on are in
 [ops/](ops/README.md).
 
-## Hosting it for free
+## Hosting it
 
-One container (the API with the admin site built in, from the [`Dockerfile`](Dockerfile)) plus a
-Neon Postgres database. **Back4App Containers** is the host that needs no card; the walkthrough is
-[docs/hosting-back4app-neon.md](docs/hosting-back4app-neon.md), including why Render, Hugging
-Face, Koyeb and Railway were ruled out. [docs/hosting-render-neon.md](docs/hosting-render-neon.md)
-and [`render.yaml`](render.yaml) cover Render, for when a card on file is acceptable.
+Azure for Students runs the API with the admin site built in, from the [`Dockerfile`](Dockerfile),
+on Azure Container Apps, and Neon holds the database. It needs a college email and no card, and
+stays on continuously. The walkthrough is in
+[docs/hosting-azure-students.md](docs/hosting-azure-students.md). Guides for Render (needs a card)
+and Back4App (free, but only a temporary URL) are next to it in `docs/`.
 
 ## Buying credits
 
