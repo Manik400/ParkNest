@@ -4,8 +4,14 @@ public sealed class EmailOptions
 {
     public const string SectionName = "Email";
 
-    /// <summary>"Smtp" to send through any SMTP server, or "Log" to print codes to the console in development.</summary>
+    /// <summary>
+    /// "Smtp" to send through any SMTP server, "Brevo" to send over Brevo's HTTPS API (for hosts
+    /// that block SMTP ports), or "Log" to print codes to the console in development.
+    /// </summary>
     public string Provider { get; set; } = "Log";
+
+    /// <summary>Brevo API key (starts with xkeysib-). Must come from a secret store.</summary>
+    public string ApiKey { get; set; } = string.Empty;
 
     /// <summary>e.g. smtp.gmail.com, smtp-relay.brevo.com, or localhost for a mail catcher.</summary>
     public string Host { get; set; } = string.Empty;
@@ -50,4 +56,15 @@ public sealed class EmailOptions
         && !string.IsNullOrWhiteSpace(SenderAddress)
         && HasKnownSecurity
         && (string.IsNullOrWhiteSpace(Username) || !string.IsNullOrWhiteSpace(Password));
+
+    public bool IsBrevo =>
+        string.Equals(Provider, "Brevo", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Brevo only sends from an address verified in its dashboard, so one is required.</summary>
+    public bool IsBrevoConfigured =>
+        IsBrevo
+        && !string.IsNullOrWhiteSpace(ApiKey)
+        && !string.IsNullOrWhiteSpace(SenderAddress);
+
+    public bool IsConfigured => IsSmtpConfigured || IsBrevoConfigured;
 }

@@ -113,14 +113,21 @@ public static class DependencyInjection
                 "and Security of StartTls, SslOnConnect or None. Leave Provider unset to use the development sender.");
         }
 
+        if (email.IsBrevo && !email.IsBrevoConfigured)
+        {
+            throw new InvalidOperationException(
+                "Email:Provider=Brevo needs ApiKey and FromAddress (an address verified in Brevo). " +
+                "Leave Provider unset to use the development sender.");
+        }
+
         // The Log sender returns the code in the API response, so anyone can sign in as any
         // number or address. That is the point of it on a laptop and a hole anywhere reachable
         // from the internet — a hosted Staging as much as Production. Outside Development a real
         // channel is required, and a channel with no real sender is simply switched off.
-        if (!environment.IsDevelopment() && !sms.IsConfigured && !email.IsSmtpConfigured)
+        if (!environment.IsDevelopment() && !sms.IsConfigured && !email.IsConfigured)
         {
             throw new InvalidOperationException(
-                "No sign-in channel is configured. Set Email:Provider=Smtp (free) or Sms:Provider=Msg91 before deploying outside Development.");
+                "No sign-in channel is configured. Set Email:Provider=Smtp or Brevo (both free) or Sms:Provider=Msg91 before deploying outside Development.");
         }
 
         if (sms.IsMsg91Configured)
@@ -136,7 +143,11 @@ public static class DependencyInjection
             AddLoggingSender(services, OtpChannel.Sms);
         }
 
-        if (email.IsSmtpConfigured)
+        if (email.IsBrevoConfigured)
+        {
+            services.AddHttpClient<IOtpSender, BrevoEmailOtpSender>();
+        }
+        else if (email.IsSmtpConfigured)
         {
             services.AddScoped<IOtpSender, SmtpEmailOtpSender>();
         }

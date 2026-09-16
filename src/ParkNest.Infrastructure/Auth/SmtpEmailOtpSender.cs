@@ -84,24 +84,12 @@ public sealed class SmtpEmailOtpSender : IOtpSender
         message.From.Add(new MailboxAddress(_options.FromName, _options.SenderAddress));
         message.To.Add(MailboxAddress.Parse(destination));
 
-        // The code leads the subject so it can be read off the notification without opening the
-        // mail, and so iOS and Android offer it as a one-tap autofill.
-        message.Subject = $"{code} is your ParkNest sign-in code";
+        message.Subject = OtpEmail.Subject(code);
 
         var body = new BodyBuilder
         {
-            TextBody =
-                $"Your ParkNest sign-in code is {code}.\n\n" +
-                $"It expires in {_lifetimeMinutes} minutes. If you did not ask for it, ignore this email - " +
-                "nobody can sign in without the code.",
-
-            HtmlBody = $$"""
-                <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:420px;margin:0 auto;padding:24px;color:#1f2933">
-                  <p style="margin:0 0 16px">Your ParkNest sign-in code is</p>
-                  <p style="margin:0 0 16px;font-size:32px;font-weight:700;letter-spacing:6px">{{code}}</p>
-                  <p style="margin:0;color:#52606d;font-size:14px">It expires in {{_lifetimeMinutes}} minutes. If you did not ask for it, ignore this email &mdash; nobody can sign in without the code.</p>
-                </div>
-                """
+            TextBody = OtpEmail.Text(code, _lifetimeMinutes),
+            HtmlBody = OtpEmail.Html(code, _lifetimeMinutes)
         };
 
         message.Body = body.ToMessageBody();

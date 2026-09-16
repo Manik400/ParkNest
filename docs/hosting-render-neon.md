@@ -15,7 +15,7 @@ same URL.
 | API + admin site | Render web service, Docker | 512 MB, sleeps after 15 min idle, wakes on the next request (about 30 s) |
 | Postgres + PostGIS | Neon | 0.5 GB, one project, scales to zero when idle |
 | TLS, domain | Render | `https://<name>.onrender.com`, certificate included |
-| Sign-in codes | Gmail SMTP | App Password, same as local development |
+| Sign-in codes | Brevo email API | 300 emails a day, no card. Render's free plan blocks SMTP ports, so Gmail SMTP cannot be used here |
 | Payments | Cashfree sandbox | test keys, no money moves |
 
 The API runs as **Staging**: real hosting, but Cashfree test keys and `Mode=Test` are still
@@ -57,8 +57,8 @@ channel must exist and phone sign-in is off until an SMS provider is configured.
    |---|---|
    | `ConnectionStrings__ParkNest` | the Neon string from step 1 |
    | `Auth__AdminEmails__0` | your email address; that account becomes the platform admin |
-   | `Email__Username`, `Email__FromAddress` | your Gmail address |
-   | `Email__Password` | the 16-character Gmail App Password (`scripts/connect-gmail.ps1` stored the same one locally) |
+   | `Email__ApiKey` | Brevo → SMTP & API → API Keys → Generate (starts with `xkeysib-`) |
+   | `Email__FromAddress` | an address verified in Brevo → Senders, e.g. your Gmail |
    | `Payments__PublicBaseUrl` | `https://parknest.onrender.com`, or whatever name Render gave the service, no trailing slash |
    | `Payments__ReturnUrls__admin` | that URL plus `/wallet` |
    | `Payments__Cashfree__ClientId`, `Payments__Cashfree__ClientSecret` | the Cashfree **Test** App ID and secret |
