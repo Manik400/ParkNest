@@ -185,11 +185,9 @@ the host, so start the API first — details and the one number worth alerting o
 
 ## Hosting it
 
-Azure for Students runs the API with the admin site built in, from the [`Dockerfile`](Dockerfile),
-on Azure Container Apps, and Neon holds the database. It needs a college email and no card, and
-stays on continuously. The walkthrough is in
-[docs/hosting-azure-students.md](docs/hosting-azure-students.md). Guides for Render (needs a card)
-and Back4App (free, but only a temporary URL) are next to it in `docs/`.
+A free Render web service runs the API with the admin site built in, from the
+[`Dockerfile`](Dockerfile) and [`render.yaml`](render.yaml), and Neon holds the database. The
+walkthrough is in [docs/hosting-render-neon.md](docs/hosting-render-neon.md).
 
 ## Buying credits
 
