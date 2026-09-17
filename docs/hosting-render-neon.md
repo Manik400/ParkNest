@@ -93,9 +93,13 @@ The checkout page and the "return to the app" page are served by the same host.
 
 ## What the free tier costs you
 
-- **Cold starts.** After 15 idle minutes the first request waits about 30 s. A free
-  [cron-job.org](https://cron-job.org) ping to `/health` every 10 minutes keeps it warm, within
-  Render's 750 free hours a month for one service.
+- **Cold starts.** After 15 idle minutes the first request waits about 30 s. Two things keep
+  it warm, within Render's 750 free hours a month for one service:
+  - `.github/workflows/keep-awake.yml` pings `/health` every 5 minutes from GitHub, so it works
+    around the clock. Nothing to set up; it runs as soon as the workflow is on `main`.
+  - `scripts/schedule-keep-awake.ps1` registers a Task Scheduler job that pings every minute
+    while you are logged in to your PC. Optional belt-and-braces; the log is in
+    `%LOCALAPPDATA%\ParkNest\keep-awake.log`.
 - **Photos do not survive a deploy.** `Storage:Provider=Local` writes to the container's disk.
   Object storage (Cloudflare R2 has a free 10 GB tier) is the fix when listing photos matter.
 - **One instance.** `MigrateOnStartup` is safe because the free plan runs exactly one; turn it
