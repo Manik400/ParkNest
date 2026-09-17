@@ -1,213 +1,451 @@
-import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
+import { DecimalPipe } from '@angular/common';
 import { Component, OnInit, ViewChild, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
+import { NearbySpace, VehicleType } from '../../core/models';
 import { LocationService } from '../../shared/location.service';
-import { MapPickerComponent } from '../../shared/map-picker.component';
-import { BookingQuote, NearbySpace, Vehicle } from '../../core/models';
+import { ResultsMapComponent } from '../../shared/results-map.component';
+import {
+  CITIES,
+  SearchService,
+  describeDistance,
+  describeLocal,
+  toLocalInput,
+} from '../../shared/search.service';
 
+interface PriceOption {
+  label: string;
+  max: number | null;
+}
+
+const PRICE_OPTIONS: PriceOption[] = [
+  { label: 'Price', max: null },
+  { label: 'Under ₹40/hr', max: 40 },
+  { label: 'Under ₹60/hr', max: 60 },
+  { label: 'Under ₹100/hr', max: 100 },
+];
+
+const VEHICLE_OPTIONS: Array<{ label: string; type: VehicleType | null }> = [
+  { label: 'Vehicle type', type: null },
+  { label: '4-wheeler', type: 'FourWheeler' },
+  { label: '2-wheeler', type: 'TwoWheeler' },
+];
+
+/**
+ * Results and map. The renter searches by place and time; the coordinates behind that come from
+ * the geocoder or the phone, never from a field. Hovering a card lights its pin.
+ */
 @Component({
   selector: 'app-explore',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, DecimalPipe, FormsModule, RouterLink, MapPickerComponent],
+  imports: [DecimalPipe, FormsModule, ResultsMapComponent],
   template: `
-    <div class="stack">
-      <div>
-        <h1>Find parking</h1>
-        <p class="muted">Spaces near a point, nearest first. Distances come from PostGIS.</p>
-      </div>
-
-      @if (error(); as message) {
-        <div class="banner banner--error" role="alert">{{ message }}</div>
-      }
-
-      @if (vehicles().length === 0 && !loading()) {
-        <div class="banner banner--info">
-          You have no vehicles registered, so you cannot book yet.
-          <a routerLink="/vehicles">Add one first</a>.
-        </div>
-      }
-
-      <section class="card stack">
-        <div class="row">
-          <button type="button" class="primary" [disabled]="locating()" (click)="useMyLocation()">
-            {{ locating() ? 'Locating…' : 'Use my location' }}
-          </button>
-          <span class="muted small">
-            Or drag the pin. Coordinates below update either way.
-          </span>
-        </div>
-
-        <app-map-picker
-          #picker
-          [latitude]="lat"
-          [longitude]="lng"
-          [zoom]="14"
-          [height]="260"
-          (pointChanged)="onPointChanged($event)"
-        />
-
-        <form class="grid" (ngSubmit)="search()">
-          <div>
-            <label for="lat">Latitude</label>
-            <input id="lat" name="lat" type="number" step="0.0001" [(ngModel)]="lat" />
-          </div>
-          <div>
-            <label for="lng">Longitude</label>
-            <input id="lng" name="lng" type="number" step="0.0001" [(ngModel)]="lng" />
-          </div>
-          <div>
-            <label for="radius">Radius (m)</label>
-            <input id="radius" name="radius" type="number" step="500" [(ngModel)]="radius" />
-          </div>
-          <div>
-            <label for="maxPrice">Max price/hr</label>
-            <input id="maxPrice" name="maxPrice" type="number" step="10" [(ngModel)]="maxPrice" />
-          </div>
-          <div class="actions">
-            <button class="primary" type="submit" [disabled]="loading()">Search</button>
-          </div>
-        </form>
-      </section>
-
-      @if (loading()) {
-        <p class="muted">Searching…</p>
-      } @else if (searched() && results().length === 0) {
-        <p class="muted">Nothing published within that radius.</p>
-      } @else if (results().length > 0) {
-        <section class="results">
-          @for (space of results(); track space.id) {
-            <div class="card space" [class.space--picked]="picked()?.id === space.id">
-              <div>
-                <strong>{{ space.title }}</strong>
-                <div class="muted small">{{ space.addressLine }}</div>
-              </div>
-              <div class="row space-between">
-                <span>{{ space.pricePerHour | currency: 'INR' : 'symbol' : '1.2-2' }}/hr</span>
-                <span class="muted small">{{ space.distanceMetres | number: '1.0-0' }} m</span>
-              </div>
-              <button type="button" (click)="pick(space)">Select</button>
-            </div>
+    <div class="bar">
+      <form class="where" (ngSubmit)="applySearch()">
+        <input class="area" name="area" placeholder="Area, e.g. Indiranagar" autocomplete="off" [(ngModel)]="area" />
+        <select class="city" name="city" [(ngModel)]="city" aria-label="City">
+          @for (c of cities; track c) {
+            <option [value]="c">{{ c }}</option>
           }
-        </section>
-      }
+        </select>
+        <span class="sep"></span>
+        <input class="when" name="from" type="datetime-local" [(ngModel)]="startLocal" aria-label="From" />
+        <select class="hours" name="hours" [(ngModel)]="hours" aria-label="For how long">
+          @for (h of hourOptions; track h) {
+            <option [ngValue]="h">{{ h }}h</option>
+          }
+        </select>
+        <button type="submit" class="go" aria-label="Search">→</button>
+      </form>
+      <button type="button" class="sm locate" [disabled]="locating()" (click)="useMyLocation()">
+        {{ locating() ? 'Locating…' : 'Use my location' }}
+      </button>
+    </div>
 
-      @if (picked(); as space) {
-        <section class="card stack">
-          <h2>Book {{ space.title }}</h2>
+    <div class="chips">
+      <button type="button" class="chip" [class.selected]="availableNow()" (click)="toggleNow()">Available now</button>
+      <button type="button" class="chip" [class.selected]="priceIndex() > 0" (click)="cyclePrice()">{{ priceLabel() }}</button>
+      <button type="button" class="chip" [class.selected]="vehicleIndex() > 0" (click)="cycleVehicle()">{{ vehicleLabel() }}</button>
+    </div>
 
-          <div class="grid">
-            <div>
-              <label for="start">Start</label>
-              <input id="start" name="start" type="datetime-local" [(ngModel)]="startLocal" (ngModelChange)="refreshQuote()" />
-            </div>
-            <div>
-              <label for="duration">Duration (minutes)</label>
-              <input
-                id="duration"
-                name="duration"
-                type="number"
-                min="30"
-                step="15"
-                [(ngModel)]="durationMinutes"
-                (ngModelChange)="refreshQuote()"
-              />
-            </div>
-            <div>
-              <label for="vehicle">Vehicle</label>
-              <select id="vehicle" name="vehicle" [(ngModel)]="vehicleId">
-                @for (v of vehicles(); track v.id) {
-                  <option [value]="v.id">{{ v.plateNumber }}</option>
-                }
-              </select>
-            </div>
+    @if (error(); as message) {
+      <div class="banner banner--error" role="alert">{{ message }}</div>
+    }
+
+    <div class="split" [class.show-map]="mapOpen()">
+      <section class="list">
+        <div class="list-head">
+          <h2>
+            @if (loading()) {
+              Looking around {{ placeLabel() }}…
+            } @else {
+              {{ results().length }} {{ results().length === 1 ? 'space' : 'spaces' }} near {{ placeLabel() }}
+            }
+          </h2>
+          <span class="muted small">Sorted by distance · {{ whenLabel() }}</span>
+        </div>
+
+        @if (!loading() && searched() && results().length === 0) {
+          <div class="empty">
+            <div class="empty__mark"></div>
+            <h3>Nothing listed here yet</h3>
+            <p>Try a nearby area, widen the time, or be the first to list a space around {{ placeLabel() }}.</p>
+            <button type="button" class="primary" (click)="widen()">Search a wider area</button>
           </div>
+        }
 
-          @if (quote(); as q) {
-            <!-- The quote reserves nothing; it exists so the renter sees the cost and any
-                 obstacle before credits move. -->
-            <div class="quote" [class.quote--blocked]="!q.canBook">
-              @if (q.canBook) {
-                <div><strong>{{ q.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</strong> for {{ q.billedMinutes }} minutes</div>
-                <div class="muted small">
-                  {{ q.startTime | date: 'short' }} → {{ q.endTime | date: 'short' }} ·
-                  overstay billed at {{ q.overstayRatePerHour | currency: 'INR' : 'symbol' : '1.2-2' }}/hr
-                </div>
+        @for (space of results(); track space.id) {
+          <article
+            class="result"
+            [class.is-hot]="hovered() === space.id"
+            tabindex="0"
+            role="link"
+            (mouseenter)="hovered.set(space.id)"
+            (mouseleave)="hovered.set(null)"
+            (click)="open(space)"
+            (keydown.enter)="open(space)"
+          >
+            <div class="photo thumb">
+              @if (space.photoUrl) {
+                <img [src]="space.photoUrl" alt="" loading="lazy" />
               } @else {
-                <div><strong>Not available.</strong> {{ q.unavailable }}</div>
+                <span class="photo__hint">space photo</span>
               }
             </div>
-          }
+            <div class="body">
+              <div class="top">
+                <div>
+                  <h3>{{ space.title }}</h3>
+                  <p class="meta">{{ space.addressLine }} · {{ distance(space) }}</p>
+                </div>
+                <div class="rate"><span class="amount">₹{{ space.pricePerHour | number: '1.0-0' }}</span><span class="unit">/hr</span></div>
+              </div>
+              <div class="foot">
+                <span class="badge badge--live">Bookable</span>
+                <span class="muted small">{{ space.city }}</span>
+              </div>
+            </div>
+          </article>
+        }
+      </section>
 
-          <div class="row">
-            <button
-              class="primary"
-              type="button"
-              [disabled]="busy() || !quote()?.canBook || !vehicleId"
-              (click)="book()"
-            >
-              Reserve credits and book
-            </button>
-            <button type="button" (click)="picked.set(null)">Cancel</button>
-          </div>
-
-          <p class="muted small">
-            Credits are held the moment you book — that is what makes the overstay bill itself
-            later, with nothing to collect from you afterwards.
-          </p>
-        </section>
-      }
+      <aside class="map">
+        <app-results-map
+          #map
+          [spaces]="results()"
+          [center]="center()"
+          [hoveredId]="hovered()"
+          [selectedId]="null"
+          (pinClicked)="open($event)"
+        />
+      </aside>
     </div>
+
+    <button type="button" class="map-toggle" (click)="toggleMap()">
+      <span class="dot"></span>{{ mapOpen() ? 'List' : 'Map' }}
+    </button>
   `,
   styles: [
     `
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-        gap: var(--space-4);
-        align-items: end;
+      :host {
+        display: block;
       }
 
-      .actions {
+      .bar {
         display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
       }
 
-      .results {
+      .where {
+        flex: 1 1 520px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 52px;
+        padding: 0 6px 0 16px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .where input,
+      .where select {
+        height: 40px;
+        border: 0;
+        padding: 0 8px;
+        background: transparent;
+        font: 600 14px/1 var(--font-body);
+        width: auto;
+        min-width: 0;
+      }
+
+      .where input:focus-visible,
+      .where select:focus-visible {
+        box-shadow: none;
+        background: var(--accent-50);
+        border-radius: 8px;
+      }
+
+      .area {
+        flex: 1 1 160px;
+      }
+
+      .city {
+        flex: 0 0 auto;
+        color: var(--ink-muted);
+      }
+
+      .sep {
+        width: 1px;
+        height: 18px;
+        background: var(--border);
+        margin: 0 4px;
+      }
+
+      .when {
+        flex: 0 1 190px;
+        color: var(--ink-soft);
+      }
+
+      .hours {
+        flex: 0 0 auto;
+        color: var(--ink-soft);
+      }
+
+      .go {
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        border-radius: 50%;
+        border: 0;
+        background: var(--accent);
+        color: #fff;
+        flex: 0 0 auto;
+      }
+
+      .go:hover:not(:disabled) {
+        background: var(--accent-600);
+        border: 0;
+      }
+
+      .locate {
+        border-radius: 999px;
+      }
+
+      .chips {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--hairline);
+        margin-bottom: 18px;
+      }
+
+      .split {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: var(--space-4);
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 42%);
+        gap: 24px;
+        align-items: start;
       }
 
-      .space {
+      .list {
         display: flex;
         flex-direction: column;
-        gap: var(--space-3);
+        gap: 14px;
+        min-width: 0;
       }
 
-      .space--picked {
-        border-color: var(--accent);
-      }
-
-      .space-between {
+      .list-head {
+        display: flex;
         justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        flex-wrap: wrap;
       }
 
-      .small {
-        font-size: 0.8rem;
+      .list-head h2 {
+        margin: 0;
+        font-size: 21px;
       }
 
-      .quote {
-        padding: var(--space-3) var(--space-4);
-        border: 1px solid var(--positive);
-        border-radius: var(--radius);
-        color: var(--positive);
+      .result {
+        display: flex;
+        gap: 16px;
+        padding: 14px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        cursor: pointer;
+        transition: box-shadow 0.18s, border-color 0.18s;
       }
 
-      .quote--blocked {
-        border-color: var(--negative);
-        color: var(--negative);
+      .result:hover,
+      .result:focus-visible,
+      .result.is-hot {
+        box-shadow: 0 6px 20px rgb(28 26 23 / 10%);
+        border-color: var(--border-strong);
+        outline: none;
+      }
+
+      .thumb {
+        width: 172px;
+        height: 130px;
+        border-radius: 14px;
+        flex: 0 0 auto;
+      }
+
+      .body {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .top {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: flex-start;
+      }
+
+      .top h3 {
+        margin: 0;
+      }
+
+      .meta {
+        margin: 5px 0 0;
+        font: 500 13px/1.4 var(--font-body);
+        color: var(--ink-muted);
+      }
+
+      .rate {
+        white-space: nowrap;
+      }
+
+      .amount {
+        font: 600 21px/1 var(--font-display);
+        letter-spacing: -0.02em;
+      }
+
+      .unit {
+        font: 600 13px/1 var(--font-body);
+        color: var(--ink-muted);
+      }
+
+      .foot {
+        margin-top: auto;
+        padding-top: 12px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .map {
+        position: sticky;
+        top: 88px;
+        height: calc(100vh - 112px);
+        min-height: 420px;
+        border-radius: 20px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+      }
+
+      .map-toggle {
+        display: none;
+      }
+
+      @media (max-width: 900px) {
+        .split {
+          grid-template-columns: 1fr;
+        }
+
+        .map {
+          display: none;
+          position: fixed;
+          inset: 60px 0 calc(62px + env(safe-area-inset-bottom));
+          height: auto;
+          min-height: 0;
+          border-radius: 0;
+          border: 0;
+          z-index: 15;
+        }
+
+        .split.show-map .map {
+          display: block;
+        }
+
+        .map-toggle {
+          position: fixed;
+          left: 50%;
+          bottom: calc(80px + env(safe-area-inset-bottom));
+          transform: translateX(-50%);
+          z-index: 16;
+          display: inline-flex;
+          height: 46px;
+          padding: 0 22px;
+          border: 0;
+          border-radius: 999px;
+          background: var(--ink);
+          color: #fff;
+          font: 700 14px/1 var(--font-body);
+          box-shadow: 0 8px 24px rgb(28 26 23 / 28%);
+        }
+
+        .map-toggle:hover {
+          background: var(--ink);
+          border: 0;
+          color: #fff;
+        }
+
+        .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 2px;
+          background: var(--accent-300);
+        }
+
+        .where {
+          flex-basis: 100%;
+          height: auto;
+          flex-wrap: wrap;
+          padding: 8px 10px;
+          border-radius: 20px;
+        }
+
+        .area {
+          flex: 1 1 60%;
+        }
+
+        .sep {
+          display: none;
+        }
+
+        .when {
+          flex: 1 1 60%;
+        }
+
+        .result {
+          flex-direction: column;
+          padding: 0;
+          overflow: hidden;
+        }
+
+        .thumb {
+          width: 100%;
+          height: auto;
+          aspect-ratio: 16 / 10;
+          border-radius: 0;
+        }
+
+        .body {
+          padding: 14px 15px 16px;
+        }
       }
     `,
   ],
@@ -216,146 +454,167 @@ export class ExploreComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly location = inject(LocationService);
+  private readonly search = inject(SearchService);
 
-  @ViewChild('picker') picker?: MapPickerComponent;
+  @ViewChild('map') mapView?: ResultsMapComponent;
 
-  lat = 12.9716;
-  lng = 77.5946;
-  radius = 5000;
-  maxPrice: number | null = null;
+  readonly cities = CITIES;
+  readonly hourOptions = [1, 2, 3, 4, 5, 6, 8, 10, 12];
 
-  startLocal = toLocalInput(new Date(Date.now() + 10 * 60_000));
-  durationMinutes = 60;
-  vehicleId = '';
+  city = this.search.state().city;
+  area = this.search.state().area;
+  startLocal = this.search.state().startLocal;
+  hours = this.search.state().hours;
+
+  private radius = 3000;
 
   readonly results = signal<NearbySpace[]>([]);
-  readonly picked = signal<NearbySpace | null>(null);
-  readonly quote = signal<BookingQuote | null>(null);
-  readonly vehicles = signal<Vehicle[]>([]);
+  readonly center = signal<{ latitude: number; longitude: number } | null>(null);
+  readonly hovered = signal<string | null>(null);
   readonly loading = signal(false);
   readonly searched = signal(false);
-  readonly busy = signal(false);
   readonly locating = signal(false);
+  readonly mapOpen = signal(false);
   readonly error = signal<string | null>(null);
+
+  readonly availableNow = signal(false);
+  readonly priceIndex = signal(0);
+  readonly vehicleIndex = signal(0);
+
+  readonly placeLabel = signal('');
+  readonly whenLabel = signal('');
+
+  priceLabel(): string {
+    return PRICE_OPTIONS[this.priceIndex()].label;
+  }
+
+  vehicleLabel(): string {
+    return VEHICLE_OPTIONS[this.vehicleIndex()].label;
+  }
+
+  distance(space: NearbySpace): string {
+    return describeDistance(space.distanceMetres);
+  }
+
+  ngOnInit(): void {
+    this.refreshLabels();
+    const state = this.search.state();
+    if (state.latitude != null && state.longitude != null) {
+      this.center.set({ latitude: state.latitude, longitude: state.longitude });
+      this.runSearch();
+    } else {
+      void this.locate();
+    }
+  }
+
+  /** The bar was edited: remember it, geocode it, search. */
+  applySearch(): void {
+    this.search.update({ city: this.city, area: this.area, startLocal: this.startLocal, hours: this.hours, latitude: null, longitude: null });
+    this.refreshLabels();
+    void this.locate();
+  }
+
+  toggleNow(): void {
+    this.availableNow.set(!this.availableNow());
+    if (this.availableNow()) {
+      this.startLocal = toLocalInput(new Date(Date.now() + 5 * 60_000));
+      this.search.update({ startLocal: this.startLocal });
+      this.refreshLabels();
+    }
+  }
+
+  cyclePrice(): void {
+    this.priceIndex.set((this.priceIndex() + 1) % PRICE_OPTIONS.length);
+    this.runSearch();
+  }
+
+  cycleVehicle(): void {
+    this.vehicleIndex.set((this.vehicleIndex() + 1) % VEHICLE_OPTIONS.length);
+    this.runSearch();
+  }
+
+  widen(): void {
+    this.radius = Math.min(this.radius * 2, 25_000);
+    this.runSearch();
+  }
+
+  toggleMap(): void {
+    this.mapOpen.set(!this.mapOpen());
+    this.mapView?.refresh();
+  }
+
+  open(space: NearbySpace): void {
+    void this.router.navigate(['/spaces', space.id]);
+  }
 
   async useMyLocation(): Promise<void> {
     this.locating.set(true);
     this.error.set(null);
-
     try {
-      const position = await this.location.current();
-      this.lat = round6(position.latitude);
-      this.lng = round6(position.longitude);
-      this.picker?.moveTo(this.lat, this.lng);
-      this.search();
+      const here = await this.location.current();
+      this.area = '';
+      this.placeLabel.set('you');
+      this.search.update({ area: '', latitude: here.latitude, longitude: here.longitude });
+      this.center.set({ latitude: here.latitude, longitude: here.longitude });
+      this.runSearch();
     } catch (err) {
-      // Permission denied is a normal outcome, not a crash — keep the typed coordinates usable.
       this.error.set((err as Error).message);
     } finally {
       this.locating.set(false);
     }
   }
 
-  onPointChanged(point: { latitude: number; longitude: number }): void {
-    this.lat = round6(point.latitude);
-    this.lng = round6(point.longitude);
-    this.search();
+  private async locate(): Promise<void> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const hit = (await this.search.geocode(this.area, this.city)) ?? (await this.search.geocode('', this.city));
+      if (!hit) {
+        this.loading.set(false);
+        this.error.set(`We couldn't place "${this.area || this.city}". Try a nearby area or use your location.`);
+        return;
+      }
+      this.search.update({ latitude: hit.latitude, longitude: hit.longitude });
+      this.center.set({ latitude: hit.latitude, longitude: hit.longitude });
+      this.runSearch();
+    } catch {
+      this.loading.set(false);
+      this.error.set('The map service did not answer. Check your connection and try again.');
+    }
   }
 
-  ngOnInit(): void {
-    this.api.myVehicles().subscribe({
-      next: (v) => {
-        this.vehicles.set(v);
-        this.vehicleId = v[0]?.id ?? '';
-      },
-      error: (err: Error) => this.error.set(err.message),
-    });
-
-    this.search();
-  }
-
-  search(): void {
+  private runSearch(): void {
+    const at = this.center();
+    if (!at) {
+      return;
+    }
     this.loading.set(true);
     this.error.set(null);
 
-    this.api.searchNearby(this.lat, this.lng, this.radius, this.maxPrice ?? undefined).subscribe({
-      next: (spaces) => {
-        this.results.set(spaces);
-        this.loading.set(false);
-        this.searched.set(true);
-      },
-      error: (err: Error) => {
-        this.error.set(err.message);
-        this.loading.set(false);
-        this.searched.set(true);
-      },
-    });
-  }
-
-  pick(space: NearbySpace): void {
-    this.picked.set(space);
-    this.refreshQuote();
-  }
-
-  refreshQuote(): void {
-    const space = this.picked();
-    if (!space) {
-      return;
-    }
-
-    this.api.quote(space.id, new Date(this.startLocal).toISOString(), this.durationMinutes).subscribe({
-      next: (q) => this.quote.set(q),
-      error: (err: Error) => {
-        this.quote.set(null);
-        this.error.set(err.message);
-      },
-    });
-  }
-
-  book(): void {
-    const space = this.picked();
-    if (!space) {
-      return;
-    }
-
-    this.busy.set(true);
-    this.error.set(null);
-
     this.api
-      .book(
-        space.id,
-        this.vehicleId,
-        new Date(this.startLocal).toISOString(),
-        this.durationMinutes,
-        // Stable per attempt, so a double-tap or a retry cannot create two bookings.
-        `book:${space.id}:${this.startLocal}:${this.durationMinutes}`,
+      .searchNearby(
+        at.latitude,
+        at.longitude,
+        this.radius,
+        PRICE_OPTIONS[this.priceIndex()].max ?? undefined,
+        VEHICLE_OPTIONS[this.vehicleIndex()].type ?? undefined,
       )
       .subscribe({
-        next: (booking) => {
-          this.busy.set(false);
-          void this.router.navigate(['/bookings', booking.id]);
+        next: (spaces) => {
+          this.results.set(spaces);
+          this.loading.set(false);
+          this.searched.set(true);
         },
         error: (err: Error) => {
-          this.busy.set(false);
           this.error.set(err.message);
+          this.loading.set(false);
+          this.searched.set(true);
         },
       });
   }
-}
 
-/** Six decimals is roughly 0.1 m — more precision than a phone GPS can justify. */
-function round6(value: number): number {
-  return Math.round(value * 1e6) / 1e6;
-}
-
-/** datetime-local wants "YYYY-MM-DDTHH:mm" in local time, not an ISO string. */
-function toLocalInput(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return (
-    date.getFullYear() +
-    '-' + pad(date.getMonth() + 1) +
-    '-' + pad(date.getDate()) +
-    'T' + pad(date.getHours()) +
-    ':' + pad(date.getMinutes())
-  );
+  private refreshLabels(): void {
+    this.placeLabel.set(this.area.trim() ? this.area.trim() : this.city);
+    this.whenLabel.set(`${describeLocal(this.startLocal)} for ${this.hours}h`);
+  }
 }

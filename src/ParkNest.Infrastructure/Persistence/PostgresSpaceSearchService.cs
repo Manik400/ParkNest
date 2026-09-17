@@ -24,10 +24,14 @@ public sealed class PostgresSpaceSearchService : ISpaceSearchService
             SELECT  s."Id",
                     s."Title",
                     s."AddressLine",
+                    s."City",
                     s."Latitude",
                     s."Longitude",
                     s."PricePerHour",
-                    ST_Distance(s.geog, @origin) AS distance_metres
+                    ST_Distance(s.geog, @origin) AS distance_metres,
+                    (SELECT p."Url" FROM space_photos p
+                     WHERE p."ParkingSpaceId" = s."Id"
+                     ORDER BY p."SortOrder" LIMIT 1) AS photo_url
             FROM    parking_spaces s
             WHERE   s."Status" = 1
               AND   ST_DWithin(s.geog, @origin, @radius)
@@ -70,10 +74,12 @@ public sealed class PostgresSpaceSearchService : ISpaceSearchService
                 reader.GetGuid(0),
                 reader.GetString(1),
                 reader.GetString(2),
-                reader.GetDouble(3),
+                reader.GetString(3),
                 reader.GetDouble(4),
-                reader.GetDecimal(5),
-                reader.GetDouble(6)));
+                reader.GetDouble(5),
+                reader.GetDecimal(6),
+                reader.GetDouble(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8)));
         }
 
         return results;

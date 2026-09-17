@@ -16,6 +16,7 @@ import {
   KycSubmission,
   LedgerEntrySummary,
   ListingDetail,
+  ListingPhoto,
   ListingSummary,
   NearbySpace,
   PaymentOrderView,
@@ -30,6 +31,7 @@ import {
   UpdateProfileRequest,
   UpsertBandRequest,
   Vehicle,
+  VehicleType,
   Wallet,
 } from './models';
 
@@ -196,13 +198,22 @@ export class ApiService {
     return this.http.post<{ id: string }>(`${this.base}/api/listings`, request);
   }
 
-  searchNearby(lat: number, lng: number, radiusMetres: number, maxPrice?: number): Observable<NearbySpace[]> {
+  searchNearby(
+    lat: number,
+    lng: number,
+    radiusMetres: number,
+    maxPrice?: number,
+    vehicleType?: VehicleType,
+  ): Observable<NearbySpace[]> {
     let params = new HttpParams()
       .set('lat', lat)
       .set('lng', lng)
       .set('radiusMetres', radiusMetres);
     if (maxPrice != null) {
       params = params.set('maxPricePerHour', maxPrice);
+    }
+    if (vehicleType) {
+      params = params.set('vehicleType', vehicleType);
     }
     return this.http.get<NearbySpace[]>(`${this.base}/api/listings/nearby`, { params });
   }
@@ -213,6 +224,21 @@ export class ApiService {
 
   listing(spaceId: string): Observable<ListingDetail> {
     return this.http.get<ListingDetail>(`${this.base}/api/listings/${spaceId}`);
+  }
+
+  listingPhotos(spaceId: string): Observable<ListingPhoto[]> {
+    return this.http.get<ListingPhoto[]>(`${this.base}/api/listings/${spaceId}/photos`);
+  }
+
+  /** Multipart, so a five-megabyte photo is not base64 inside JSON. */
+  addListingPhoto(spaceId: string, file: File): Observable<ListingPhoto> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<ListingPhoto>(`${this.base}/api/listings/${spaceId}/photos`, form);
+  }
+
+  removeListingPhoto(spaceId: string, photoId: string): Observable<unknown> {
+    return this.http.delete(`${this.base}/api/listings/${spaceId}/photos/${photoId}`);
   }
 
   publishListing(spaceId: string): Observable<unknown> {

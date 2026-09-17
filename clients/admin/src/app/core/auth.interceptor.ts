@@ -2,6 +2,7 @@ import { HttpErrorResponse, HttpInterceptorFn, HttpRequest } from '@angular/comm
 import { inject } from '@angular/core';
 import { catchError, switchMap, throwError } from 'rxjs';
 
+import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
 import { ProblemDetails } from './models';
 
@@ -16,6 +17,16 @@ import { ProblemDetails } from './models';
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
+
+  // Third-party calls (the geocoder, map tiles) get neither the token nor the retry: the token is
+  // ours to keep, and an Authorization header would also force a CORS preflight they may refuse.
+  // In production the API base is '' (same origin), so "ours" means a relative URL.
+  const ours =
+    req.url.startsWith('/') ||
+    (environment.apiBaseUrl !== '' && req.url.startsWith(environment.apiBaseUrl));
+  if (!ours) {
+    return next(req);
+  }
 
   return next(withToken(req, auth.accessToken())).pipe(
     catchError((error: HttpErrorResponse) => {

@@ -191,7 +191,7 @@ public sealed class SpaceSearchCacheTests : IDisposable
 
             IReadOnlyList<NearbySpace> results =
             [
-                new NearbySpace(SpaceId, "Indiranagar driveway", "12th Main", 12.9716, 77.5946, 45.50m, 120.5)
+                new NearbySpace(SpaceId, "Indiranagar driveway", "12th Main", "Bengaluru", 12.9716, 77.5946, 45.50m, 120.5, null)
             ];
 
             return Task.FromResult(results);

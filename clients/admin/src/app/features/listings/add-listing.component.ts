@@ -5,6 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { LocationService } from '../../shared/location.service';
 import { MapPickerComponent } from '../../shared/map-picker.component';
+import { SearchService } from '../../shared/search.service';
 import { AvailabilityWindowRequest, DAY_NAMES, VehicleType } from '../../core/models';
 
 interface DayRow {
@@ -51,23 +52,19 @@ interface DayRow {
               <label for="zone">Zone (optional)</label>
               <input id="zone" name="zone" [(ngModel)]="zone" placeholder="cbd" />
             </div>
-
-            <div>
-              <label for="lat">Latitude</label>
-              <input id="lat" name="lat" type="number" step="0.0001" [(ngModel)]="form.latitude" />
-            </div>
-
-            <div>
-              <label for="lng">Longitude</label>
-              <input id="lng" name="lng" type="number" step="0.0001" [(ngModel)]="form.longitude" />
-            </div>
           </div>
 
-          <div class="row">
-            <button type="button" [disabled]="locating()" (click)="useMyLocation()">
-              {{ locating() ? 'Locating…' : 'Use my location' }}
-            </button>
-            <span class="muted small">Or click the map / drag the pin.</span>
+          <div>
+            <label>Where exactly is it?</label>
+            <div class="row">
+              <button type="button" class="sm" [disabled]="locating()" (click)="useMyLocation()">
+                {{ locating() ? 'Locating…' : 'Use my location' }}
+              </button>
+              <button type="button" class="sm" [disabled]="locating() || !form.addressLine.trim()" (click)="findAddress()">
+                {{ locating() ? 'Finding…' : 'Find the address on the map' }}
+              </button>
+              <span class="muted small">Then drag the pin onto the entrance.</span>
+            </div>
           </div>
 
           <!-- The pin drives the PostGIS search renters use to find this space, so getting it
@@ -236,6 +233,7 @@ export class AddListingComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly location = inject(LocationService);
+  private readonly search = inject(SearchService);
 
   @ViewChild('picker') picker?: MapPickerComponent;
 
@@ -271,6 +269,26 @@ export class AddListingComponent {
       this.picker?.moveTo(this.form.latitude, this.form.longitude);
     } catch (err) {
       this.error.set((err as Error).message);
+    } finally {
+      this.locating.set(false);
+    }
+  }
+
+  /** Geocodes the typed address so the host never has to think about coordinates. */
+  async findAddress(): Promise<void> {
+    this.locating.set(true);
+    this.error.set(null);
+    try {
+      const hit = await this.search.geocode(this.form.addressLine, this.form.city);
+      if (!hit) {
+        this.error.set("We couldn't find that address. Drag the pin onto the entrance instead.");
+        return;
+      }
+      this.form.latitude = hit.latitude;
+      this.form.longitude = hit.longitude;
+      this.picker?.moveTo(hit.latitude, hit.longitude);
+    } catch {
+      this.error.set('The map service did not answer. Drag the pin onto the entrance instead.');
     } finally {
       this.locating.set(false);
     }

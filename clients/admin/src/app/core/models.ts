@@ -123,6 +123,12 @@ export interface ListingDetail {
   photoUrls: string[];
 }
 
+export interface ListingPhoto {
+  id: string;
+  url: string;
+  sortOrder: number;
+}
+
 export interface Vehicle {
   id: string;
   plateNumber: string;
@@ -133,10 +139,13 @@ export interface NearbySpace {
   id: string;
   title: string;
   addressLine: string;
+  city: string;
   latitude: number;
   longitude: number;
   pricePerHour: number;
   distanceMetres: number;
+  /** The listing's first photo, or null when the host has not uploaded one yet. */
+  photoUrl: string | null;
 }
 
 export interface BookingQuote {

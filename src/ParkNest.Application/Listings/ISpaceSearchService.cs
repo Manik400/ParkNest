@@ -19,11 +19,18 @@ public sealed record NearbySearchQuery(
     decimal? MaxPricePerHour = null,
     int Limit = 50);
 
+/// <summary>
+/// One search hit. <paramref name="PhotoUrl"/> is the listing's first photo, or null when the host
+/// has not uploaded one — the results page leads with the photo, so fetching it per card would
+/// be one round trip per result.
+/// </summary>
 public sealed record NearbySpace(
     Guid Id,
     string Title,
     string AddressLine,
+    string City,
     double Latitude,
     double Longitude,
     decimal PricePerHour,
-    double DistanceMetres);
+    double DistanceMetres,
+    string? PhotoUrl);

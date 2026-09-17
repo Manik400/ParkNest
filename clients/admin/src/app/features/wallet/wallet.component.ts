@@ -1,7 +1,7 @@
-import { CurrencyPipe, DatePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { forkJoin, of, timer } from 'rxjs';
 import { catchError, switchMap, take, takeWhile } from 'rxjs/operators';
 
@@ -20,75 +20,67 @@ import {
 @Component({
   selector: 'app-wallet',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, FormsModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, RouterLink],
   template: `
-    <div class="stack">
+    <div class="page-head">
       <h1>Wallet</h1>
+    </div>
 
-      @if (error(); as message) {
-        <div class="banner banner--error" role="alert">{{ message }}</div>
-      }
+    @if (error(); as message) {
+      <div class="banner banner--error" role="alert">{{ message }}</div>
+    }
 
-      @if (loading()) {
-        <p class="muted">Loading…</p>
-      } @else {
-        <section class="tiles">
-          <div class="card tile">
-            <span class="muted">Spendable</span>
-            <strong>{{ wallet()?.spendable ?? 0 | currency: 'INR' : 'symbol' : '1.2-2' }}</strong>
-            <span class="muted small">Free to book with</span>
-          </div>
-          <div class="card tile">
-            <span class="muted">Held</span>
-            <strong>{{ wallet()?.held ?? 0 | currency: 'INR' : 'symbol' : '1.2-2' }}</strong>
-            <span class="muted small">Reserved against open bookings</span>
-          </div>
-          <div class="card tile">
-            <span class="muted">Earning</span>
-            <strong>{{ wallet()?.earning ?? 0 | currency: 'INR' : 'symbol' : '1.2-2' }}</strong>
-            <span class="muted small">Awaiting cash-out</span>
-          </div>
-        </section>
+    @if (loading()) {
+      <p class="muted">Loading…</p>
+    } @else {
+      <section class="balance card">
+        <div class="overline">Your balance</div>
+        <div class="big">₹{{ wallet()?.spendable ?? 0 | number: '1.0-0' }}</div>
+        <div class="lines">
+          @if ((wallet()?.held ?? 0) > 0) {
+            <div>₹{{ wallet()?.held | number: '1.0-0' }} reserved for your upcoming bookings</div>
+          }
+          @if ((wallet()?.earning ?? 0) > 0) {
+            <div>₹{{ wallet()?.earning | number: '1.0-0' }} earned from your spaces · <a routerLink="/payouts">withdraw</a></div>
+          }
+          @if ((wallet()?.held ?? 0) === 0 && (wallet()?.earning ?? 0) === 0) {
+            <div class="muted">Nothing reserved right now.</div>
+          }
+        </div>
+      </section>
 
-        <section class="card stack">
-          <div>
-            <h2>Add credits</h2>
-            <p class="muted">
-              Credits are bought through the payment gateway. Nothing is added to your balance
-              until the gateway confirms the payment with a signed callback - which is why a
-              failed or abandoned payment simply leaves your balance untouched.
-            </p>
-          </div>
+      <section class="card topup">
+        <h2>Add money</h2>
+        <p class="muted">Pay by UPI. The money lands in your balance the moment the payment is confirmed.</p>
 
-          @if (settling()) {
+        @if (settling()) {
+          <div class="banner banner--info" role="status">Confirming your payment… this usually takes a few seconds.</div>
+        }
+
+        @if (outcome(); as order) {
+          @if (order.status === 'Paid') {
+            <div class="banner banner--success" role="status">✓ ₹{{ order.amount | number: '1.0-0' }} added to your balance.</div>
+          } @else if (order.status === 'Failed') {
+            <div class="banner banner--error" role="alert">
+              <strong>Payment didn't go through</strong>
+              Nothing was charged. {{ order.failureReason }}
+            </div>
+          } @else {
             <div class="banner banner--info" role="status">
-              Confirming the payment with the server… The balance moves only once the gateway's
-              signed callback has been verified.
+              We haven't heard back about this payment yet. If you completed it, the money will appear shortly.
             </div>
           }
+        }
 
-          @if (outcome(); as order) {
-            @if (order.status === 'Paid') {
-              <div class="banner banner--ok" role="status">
-                ✓ Paid. {{ order.amount | currency: 'INR' : 'symbol' : '1.2-2' }} added to your
-                spendable balance.
-              </div>
-            } @else if (order.status === 'Failed') {
-              <div class="banner banner--error" role="alert">
-                Payment failed - nothing was charged and nothing was credited.
-                {{ order.failureReason }}
-              </div>
-            } @else {
-              <div class="banner banner--info" role="status">
-                Order {{ order.providerOrderId }} is still open. If you completed the payment, the
-                callback has not arrived yet; the credits will appear when it does.
-              </div>
+        <form (ngSubmit)="startPayment()">
+          <div class="quick">
+            @for (q of quickAmounts; track q) {
+              <button type="button" class="chip" [class.selected]="topUpAmount === q" (click)="topUpAmount = q">₹{{ q }}</button>
             }
-          }
-
-          <form class="row" (ngSubmit)="startPayment()">
+          </div>
+          <div class="amount-row">
             <div class="amount">
-              <label for="amount">Amount</label>
+              <label for="amount">Or another amount</label>
               <input id="amount" name="amount" type="number" min="100" step="100" [(ngModel)]="topUpAmount" />
             </div>
             @if (phoneNeeded()) {
@@ -101,123 +93,154 @@ import {
               </div>
             }
             <button class="primary" type="submit" [disabled]="paying() || settling()">
-              {{ paying() ? 'Starting…' : 'Add credits' }}
+              {{ paying() ? 'Opening checkout…' : 'Add ₹' + topUpAmount }}
             </button>
-          </form>
+          </div>
+        </form>
 
-          @if (paymentError(); as message) {
-            <div class="banner banner--error" role="alert">{{ message }}</div>
-          }
+        @if (paymentError(); as message) {
+          <div class="banner banner--error" role="alert">{{ message }}</div>
+        }
 
-          @if (pendingOrder(); as order) {
-            <!-- Every gateway the API offers returns a checkout URL, so this is a fallback for a
-                 payload without one: show the order rather than nothing. -->
-            <div class="banner banner--info">
-              Order <strong>{{ order.providerOrderId }}</strong> created for
-              {{ order.amount | currency: 'INR' : 'symbol' : '1.2-2' }}. Complete it in the
-              gateway's checkout to receive the credits.
-            </div>
-          }
-        </section>
+        @if (pendingOrder(); as order) {
+          <!-- Every gateway the API offers returns a checkout URL, so this is a fallback for a
+               payload without one: show the order rather than nothing. -->
+          <div class="banner banner--info">
+            Order <strong>{{ order.providerOrderId }}</strong> created for ₹{{ order.amount | number: '1.0-0' }}.
+            Complete it in the gateway's checkout to receive the money.
+          </div>
+        }
+      </section>
 
-        @if (reconciliation(); as recon) {
-          <div class="card stack">
-            <h2>Reconciliation</h2>
-            <p class="muted">
-              The stored balances are a cache. These figures are recomputed by replaying every
-              ledger entry — they must agree.
-            </p>
+      <!-- Operators see the ledger replay; renters never need to know balances are cached. -->
+      @if (reconciliation(); as recon) {
+        @if (!recon.matches) {
+          <div class="banner banner--error" role="alert">
+            <strong>Balance check failed</strong>
+            Replay gives ₹{{ recon.replayedSpendable | number: '1.0-0' }} spendable /
+            ₹{{ recon.replayedHeld | number: '1.0-0' }} reserved / ₹{{ recon.replayedEarning | number: '1.0-0' }} earned.
+            Treat this as an incident.
+          </div>
+        } @else if (isAdmin) {
+          <p class="muted small">✓ Stored balances match a full replay of the ledger.</p>
+        }
+      }
 
-            @if (recon.matches) {
-              <p class="ok">✓ Stored balances match a full replay of the ledger.</p>
-            } @else {
-              <div class="banner banner--error" role="alert">
-                <strong>Mismatch.</strong> Replay gives
-                {{ recon.replayedSpendable | currency: 'INR' : 'symbol' : '1.2-2' }} spendable /
-                {{ recon.replayedHeld | currency: 'INR' : 'symbol' : '1.2-2' }} held /
-                {{ recon.replayedEarning | currency: 'INR' : 'symbol' : '1.2-2' }} earning. Treat
-                this as an incident.
+      <section class="history">
+        <h2>Activity</h2>
+        @if (entries().length === 0) {
+          <div class="empty">
+            <div class="empty__mark"></div>
+            <h3>No activity yet</h3>
+            <p>Money you add, reserve and earn will show up here.</p>
+          </div>
+        } @else {
+          <div class="entries">
+            @for (entry of entries(); track $index) {
+              <div class="entry">
+                <div>
+                  <div class="what">{{ describe(entry) }}</div>
+                  <div class="muted small">{{ entry.createdAt | date: 'd MMM, h:mm a' }}</div>
+                </div>
+                <div class="amt" [class.debit]="entry.direction === 'Debit'">
+                  {{ entry.direction === 'Debit' ? '−' : '+' }}₹{{ entry.amount | number: '1.0-0' }}
+                </div>
               </div>
             }
           </div>
         }
-
-        <section class="card stack">
-          <h2>Transaction history</h2>
-
-          @if (entries().length === 0) {
-            <p class="muted">No movements yet.</p>
-          } @else {
-            <div class="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Type</th>
-                    <th>Account</th>
-                    <th class="numeric">Amount</th>
-                    <th>Description</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (entry of entries(); track $index) {
-                    <tr>
-                      <td>{{ entry.createdAt | date: 'short' }}</td>
-                      <td>{{ entry.transactionType }}</td>
-                      <td>{{ entry.account }}</td>
-                      <td class="numeric" [class.debit]="entry.direction === 'Debit'">
-                        {{ entry.direction === 'Debit' ? '−' : '+'
-                        }}{{ entry.amount | currency: 'INR' : 'symbol' : '1.2-2' }}
-                      </td>
-                      <td class="muted">{{ entry.description ?? '—' }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          }
-        </section>
-      }
-    </div>
+      </section>
+    }
   `,
   styles: [
     `
-      .tiles {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: var(--space-4);
+      :host {
+        display: block;
+        max-width: 720px;
       }
 
-      .tile {
+      .balance {
+        margin-bottom: 16px;
+      }
+
+      .big {
+        font: 600 44px/1.05 var(--font-display);
+        letter-spacing: -0.03em;
+        margin: 8px 0 12px;
+      }
+
+      .lines {
         display: flex;
         flex-direction: column;
-        gap: var(--space-1);
+        gap: 4px;
+        font-size: 14px;
+        color: var(--ink-soft);
       }
 
-      .tile strong {
-        font-size: 1.5rem;
-        font-variant-numeric: tabular-nums;
+      .topup {
+        margin-bottom: 24px;
       }
 
-      .small {
-        font-size: 0.8rem;
+      .topup h2 {
+        margin-bottom: 6px;
       }
 
-      .ok {
-        color: var(--positive);
-        margin: 0;
+      .quick {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 16px 0;
       }
 
-      .debit {
-        color: var(--negative);
-      }
-
-      form.row {
+      .amount-row {
+        display: flex;
+        gap: 12px;
         align-items: flex-end;
+        flex-wrap: wrap;
       }
 
       .amount {
-        max-width: 200px;
+        flex: 1 1 160px;
+        max-width: 220px;
+      }
+
+      .history h2 {
+        margin-bottom: 14px;
+      }
+
+      .entries {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+
+      .entry {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        padding: 14px 18px;
+        border-top: 1px solid var(--hairline);
+      }
+
+      .entry:first-child {
+        border-top: 0;
+      }
+
+      .what {
+        font-weight: 600;
+      }
+
+      .amt {
+        font: 600 17px/1 var(--font-display);
+        letter-spacing: -0.01em;
+        color: var(--success-ink);
+        white-space: nowrap;
+      }
+
+      .amt.debit {
+        color: var(--ink);
       }
     `,
   ],
@@ -233,6 +256,9 @@ export class WalletComponent implements OnInit {
   readonly entries = signal<LedgerEntrySummary[]>([]);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+
+  readonly quickAmounts = [200, 500, 1000, 2000];
+  readonly isAdmin = this.auth.isAdmin();
 
   topUpAmount = 500;
   topUpPhone = '';
@@ -251,6 +277,30 @@ export class WalletComponent implements OnInit {
    */
   private static readonly POLL_INTERVAL_MS = 1200;
   private static readonly POLL_ATTEMPTS = 100;
+
+  /** The ledger's vocabulary (LedgerTransactionType), translated once. */
+  describe(entry: LedgerEntrySummary): string {
+    switch (entry.transactionType) {
+      case 'Recharge':
+        return 'Money added';
+      case 'Hold':
+        return 'Reserved for a booking';
+      case 'ReleaseHold':
+        return 'Unused time returned';
+      case 'OverstayDebit':
+        return 'Extra time charged';
+      case 'Settlement':
+        return entry.direction === 'Credit' ? 'Earned from a booking' : 'Parking charged';
+      case 'Payout':
+        return 'Withdrawn';
+      case 'Refund':
+        return 'Refunded';
+      case 'AdminAdjustment':
+        return entry.description ?? 'Adjustment by ParkNest';
+      default:
+        return entry.description ?? entry.transactionType.replace(/([a-z])([A-Z])/g, '$1 $2');
+    }
+  }
 
   startPayment(): void {
     this.paying.set(true);

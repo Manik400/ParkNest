@@ -19,25 +19,31 @@ export const routes: Routes = [
         path: '',
         loadComponent: () =>
           import('./features/dashboard/dashboard.component').then((m) => m.DashboardComponent),
-        title: 'Dashboard · ParkNest',
+        title: 'ParkNest',
       },
       {
         path: 'explore',
         loadComponent: () =>
           import('./features/explore/explore.component').then((m) => m.ExploreComponent),
-        title: 'Find parking - ParkNest',
+        title: 'Find parking · ParkNest',
+      },
+      {
+        path: 'spaces/:spaceId',
+        loadComponent: () =>
+          import('./features/explore/space.component').then((m) => m.SpaceComponent),
+        title: 'Space · ParkNest',
       },
       {
         path: 'vehicles',
         loadComponent: () =>
           import('./features/vehicles/vehicles.component').then((m) => m.VehiclesComponent),
-        title: 'My vehicles - ParkNest',
+        title: 'My vehicles · ParkNest',
       },
       {
         path: 'listings/new',
         loadComponent: () =>
           import('./features/listings/add-listing.component').then((m) => m.AddListingComponent),
-        title: 'List a space - ParkNest',
+        title: 'List a space · ParkNest',
       },
       {
         path: 'listings',

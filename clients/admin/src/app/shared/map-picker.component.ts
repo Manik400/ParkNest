@@ -64,7 +64,7 @@ export class MapPickerComponent implements AfterViewInit, OnDestroy {
       draggable: !this.readonly,
       icon: L.divIcon({
         className: 'parknest-pin',
-        html: '<div style="width:18px;height:18px;border-radius:50%;background:#1f6feb;border:3px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.3)"></div>',
+        html: '<div style="width:18px;height:18px;border-radius:50%;background:#c8622f;border:3px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.3)"></div>',
         iconSize: [18, 18],
         iconAnchor: [9, 9],
       }),
