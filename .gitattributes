@@ -8,6 +8,10 @@
 *.sln     text eol=crlf
 *.csproj  text
 
+# Shell scripts must stay LF — CI runs them on Linux, and CRLF breaks the shebang.
+*.sh      text eol=lf
+*.yml     text eol=lf
+
 *.png binary
 *.jpg binary
 *.pfx binary

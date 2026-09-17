@@ -1,0 +1,175 @@
+name: CI
+
+on:
+  pull_request:
+    # Deliberately unfiltered: a PR stacked onto another feature branch needs the same
+    # checks as one targeting main, and a branch filter silently skips them.
+  push:
+    branches: [main]
+
+# A new push to the same PR cancels the previous run — no point burning minutes on a stale commit.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Restores dotnet-ef at the version pinned in .config/dotnet-tools.json.
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      # The suite runs on in-memory SQLite, so no database service container is needed.
+      # Only the unit project: the integration tests need a PostGIS container and run in the
+      # migrations job, which already has one.
+      - name: Test
+        run: >
+          dotnet test tests/ParkNest.UnitTests --no-build -c Release
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory ${{ github.workspace }}/TestResults
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: ${{ github.workspace }}/TestResults
+          retention-days: 14
+
+  admin-web:
+    name: Admin web builds
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: clients/admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: clients/admin/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npx ng build --configuration production
+
+  mobile-app:
+    name: Mobile app analyses and tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: clients/mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Pinned to the version the app is developed against. The plugin constraints in
+          # pubspec.yaml are written around it — geolocator and mobile_scanner both moved to
+          # newer Flutter tooling in their next majors.
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Install
+        run: flutter pub get
+
+      # Analysis, not a build. An APK needs an Android toolchain for a check that would only tell
+      # us what analyze already did — the parts worth protecting here are the wire models and the
+      # code the scanner accepts, and those are tests.
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+  migrations-apply:
+    name: Migrations apply to a real PostGIS database
+    runs-on: ubuntu-latest
+
+    # The SQLite test suite never exercises the PostGIS column, the CHECK constraints or the
+    # append-only trigger. This job is the only thing that proves the migrations actually run.
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: parknest
+          POSTGRES_USER: parknest
+          POSTGRES_PASSWORD: parknest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U parknest -d parknest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Apply migrations
+        env:
+          PARKNEST_CONNECTION: Host=localhost;Port=5432;Database=parknest;Username=parknest;Password=parknest
+        run: >
+          dotnet dotnet-ef database update
+          --project src/ParkNest.Infrastructure
+          --startup-project src/ParkNest.Api
+
+      - name: Verify PostGIS column, index and ledger invariants exist
+        env:
+          PGPASSWORD: parknest
+        run: bash .github/scripts/verify-schema.sh
+
+      # Two things only this job can check: the geo-search path — the generated geog column, the
+      # GiST index, the raw SQL — which the SQLite suite cannot see at all, and whether every
+      # controller resolves from the real container, which no test that constructs its
+      # dependencies by hand can see either. Without the connection variable these skip, which is
+      # right locally and would be silent rot here; the variable is set, so they run.
+      - name: Integration tests (geo-search, container wiring)
+        env:
+          PARKNEST_TEST_CONNECTION: Host=localhost;Port=5432;Database=parknest;Username=parknest;Password=parknest
+        run: >
+          dotnet test tests/ParkNest.IntegrationTests
+          --logger "trx;LogFileName=integration-results.trx"
+          --results-directory ${{ github.workspace }}/TestResults
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: ${{ github.workspace }}/TestResults
+          retention-days: 14

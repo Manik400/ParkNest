@@ -1,0 +1,24 @@
+# Pings the hosted API every 5 minutes so Render's free instance never reaches its 15-minute
+# idle sleep. Runs on GitHub's servers, so it keeps working when your own PC is off — unlike
+# scripts/keep-awake.ps1, which only runs while you are logged in.
+#
+# GitHub schedules can slip by several minutes under load; 5 minutes leaves room for that.
+# The job is tiny (one curl), so it stays well inside the free Actions allowance.
+name: Keep awake
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping /health
+        run: |
+          # A sleeping instance takes 30-60 s to answer, hence the long max-time.
+          curl --fail --silent --show-error --max-time 120 \
+            -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' \
+            https://parknest.onrender.com/health

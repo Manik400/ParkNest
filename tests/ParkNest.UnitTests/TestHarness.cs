@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Auth;
 using ParkNest.Application.Bookings;
 using ParkNest.Application.Listings;
 using ParkNest.Application.Options;
@@ -58,23 +59,56 @@ public sealed class TestHarness : IDisposable
         Db.Database.EnsureCreated();
 
         Clock = new TestClock(Origin);
+        CurrentUser = new TestCurrentUser();
         var wrapped = Microsoft.Extensions.Options.Options.Create(Options);
 
         Ledger = new LedgerService(Db, Clock);
         Wallets = new WalletService(Db, Ledger, Clock, wrapped);
         PricingService = new PricingService(Db, wrapped);
-        Listings = new ListingService(Db, PricingService, Clock);
-        Bookings = new BookingService(Db, Wallets, PricingService, Clock, wrapped);
+        // The no-op invalidator, because the unit suite runs with caching off. What the decorator
+        // itself does is covered separately in SpaceSearchCacheTests, against a real cache.
+        Listings = new ListingService(
+            Db, PricingService, Clock, CurrentUser, new NoOpSpaceSearchCacheInvalidator());
+        Events = new RecordingEventBus();
+        Bookings = new BookingService(Db, Wallets, PricingService, Clock, CurrentUser, wrapped, Events);
+
+        AuthOptions = new AuthOptions
+        {
+            SigningKey = "test-signing-key-that-is-long-enough-32",
+            OtpPepper = "test-otp-pepper-value",
+            OtpLifetimeMinutes = 5,
+            OtpMaxAttempts = 3
+        };
+
+        OtpSender = new RecordingOtpSender(OtpChannel.Sms);
+        EmailSender = new RecordingOtpSender(OtpChannel.Email);
+        Auth = new AuthService(
+            Db,
+            new FakeTokenService(Clock),
+            new IOtpSender[] { OtpSender, EmailSender },
+            Clock,
+            Microsoft.Extensions.Options.Options.Create(AuthOptions),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<AuthService>.Instance);
     }
 
     public PlatformOptions Options { get; }
     public ParkNestDbContext Db { get; }
     public TestClock Clock { get; }
+    public TestCurrentUser CurrentUser { get; }
     public ILedgerService Ledger { get; }
     public IWalletService Wallets { get; }
     public IPricingService PricingService { get; }
     public IListingService Listings { get; }
     public IBookingService Bookings { get; }
+
+    /// <summary>Captures what was announced, so tests can assert on it without a broker.</summary>
+    public RecordingEventBus Events { get; }
+    public IAuthService Auth { get; }
+    public AuthOptions AuthOptions { get; }
+    /// <summary>The SMS channel. Named before email existed, and most auth tests are about phones.</summary>
+    public RecordingOtpSender OtpSender { get; }
+
+    public RecordingOtpSender EmailSender { get; }
 
     public async Task<User> AddUserAsync(UserRole role, KycStatus kyc = KycStatus.NotStarted)
     {
@@ -88,6 +122,7 @@ public sealed class TestHarness : IDisposable
 
         Db.Users.Add(user);
         await Db.SaveChangesAsync();
+        CurrentUser.SignIn(user.Id, role);
         return user;
     }
 
@@ -128,14 +163,29 @@ public sealed class TestHarness : IDisposable
         return band;
     }
 
+    /// <summary>UTC keeps wall-clock reasoning out of tests that are not about time zones.</summary>
+    public const string TimeZone = "UTC";
+
     public async Task<ParkingSpace> AddPublishedSpaceAsync(
         Guid hostId,
         decimal pricePerHour = 60m,
         VehicleType type = VehicleType.FourWheeler,
-        string city = "Bengaluru")
+        string city = "Bengaluru",
+        IReadOnlyList<AvailabilityWindowRequest>? availabilityWindows = null)
     {
+        CurrentUser.SignIn(hostId, UserRole.Host);
+
+        // Open around the clock every day unless a test says otherwise, so availability does not
+        // become an incidental variable in tests that are really about money or booking state.
+        // Equal start and end means a full 24 hours, so these merge into one continuous interval
+        // with no gap at midnight.
+        var windows = availabilityWindows ?? Enum.GetValues<DayOfWeek>()
+            .Select(d => new AvailabilityWindowRequest(d, new TimeOnly(0, 0), new TimeOnly(0, 0)))
+            .ToArray();
+
         var space = await Listings.CreateDraftAsync(new CreateListingRequest(
-            hostId, "Driveway", "12 Main Rd", city, null, 12.97, 77.59, pricePerHour, new[] { type }));
+            "Driveway", "12 Main Rd", city, null, 12.97, 77.59, pricePerHour, new[] { type },
+            windows, TimeZone));
 
         return await Listings.PublishAsync(space.Id);
     }

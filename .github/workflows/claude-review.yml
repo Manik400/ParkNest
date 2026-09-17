@@ -1,0 +1,64 @@
+name: Claude Review
+
+# On-demand only. Comment "@claude" on a PR or issue — optionally with an instruction, e.g.
+# "@claude check the settlement rounding" — and Claude reviews from that point.
+# Nothing runs unless asked, so this costs nothing on routine PRs.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    name: Claude review
+    runs-on: ubuntu-latest
+
+    # Skip the runner entirely unless "@claude" actually appears — an unguarded job would spin up
+    # on every comment in the repo.
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: "@claude"
+          # One comment that updates in place, instead of a new wall of text per push.
+          use_sticky_comment: true
+          claude_args: |
+            --model claude-opus-4-5
+          prompt: |
+            You are reviewing a pull request for ParkNest, a peer-to-peer parking marketplace.
+
+            Read docs/ledger-model.md and docs/architecture.md before commenting — they define the
+            rules this codebase is held to. Cite PRD sections from docs/PRD.md where relevant.
+
+            Weight your attention by blast radius:
+
+            1. Money code (ParkNest.Application/Wallets, Bookings, and any migration) is the
+               highest bar. Check that every credit movement goes through LedgerService.PostAsync,
+               that each transaction balances, that idempotency keys are present on wallet-mutating
+               paths, and that amounts pass through Money.Round before reaching the ledger.
+            2. Authentication and authorisation. Endpoints must never trust a user id supplied in
+               a request body. Flag any path where one user could act on another's wallet, booking
+               or listing.
+            3. Correctness of the settlement arithmetic, especially rounding, the billing
+               increment, and overstay handling when the renter cannot cover the excess.
+            4. Missing tests for new behaviour.
+
+            Be specific and cite file:line. Report only what you can justify — if the diff is fine,
+            say so plainly rather than inventing nits. Do not restate what the code does.

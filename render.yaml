@@ -1,0 +1,76 @@
+# Render Blueprint: one free web service running the API with the admin site inside it.
+# The database is Neon (free tier, PostGIS available) and is not managed here; its connection
+# string is entered in the Render dashboard as a secret. Walkthrough: docs/hosting-render-neon.md
+services:
+  - type: web
+    name: parknest
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: ASPNETCORE_ENVIRONMENT
+        # Staging: real hosting, but Cashfree test keys and Mode=Test are still allowed. Switch
+        # to Production only with Cashfree live keys.
+        value: Staging
+      - key: ASPNETCORE_FORWARDEDHEADERS_ENABLED
+        # Render terminates TLS; this makes the API trust X-Forwarded-For/Proto so rate limiting
+        # sees the client address rather than the proxy.
+        value: "true"
+      - key: Database__MigrateOnStartup
+        value: "true"
+
+      # --- Secrets: entered in the dashboard, never here -----------------------------------
+      - key: ConnectionStrings__ParkNest
+        sync: false # Neon: Host=…neon.tech;Database=…;Username=…;Password=…;SSL Mode=Require;Trust Server Certificate=true
+      - key: Auth__SigningKey
+        generateValue: true # at least 32 characters; Render generates a long random value
+      - key: Auth__OtpPepper
+        generateValue: true
+      - key: Kyc__Pepper
+        generateValue: true
+      - key: Auth__AdminEmails__0
+        sync: false # your email, so your account is the platform admin
+
+      # --- Sign-in codes by email, over Brevo's HTTPS API --------------------------------------
+      # Render's free plan blocks outbound SMTP ports 25/465/587, so Gmail SMTP cannot work here.
+      - key: Email__Provider
+        value: Brevo
+      - key: Email__ApiKey
+        sync: false # Brevo → SMTP & API → API Keys → Generate (starts with xkeysib-)
+      - key: Email__FromAddress
+        sync: false # an address verified in Brevo → Senders, e.g. your Gmail
+      # No SMS provider: outside Development the dev "Log" sender is never registered, so phone
+      # sign-in is switched off and email is the only channel. Sms__Provider=Msg91 turns it on.
+
+      # --- Payments: Cashfree test keys, same values scripts/connect-payments.ps1 stored locally -
+      - key: Payments__Provider
+        value: Cashfree
+      - key: Payments__Mode
+        value: Test
+      - key: Payments__PublicBaseUrl
+        sync: false # https://parknest.onrender.com (whatever Render assigns; no trailing slash)
+      - key: Payments__ReturnUrls__admin
+        sync: false # https://parknest.onrender.com/wallet
+      - key: Payments__Cashfree__ClientId
+        sync: false
+      - key: Payments__Cashfree__ClientSecret
+        sync: false
+      - key: Payments__Cashfree__PaymentMethods
+        value: upi
+
+      # --- Everything else stays on its free/no-op provider ----------------------------------
+      - key: Storage__Provider
+        value: Local # photos live on the container disk and are lost on redeploy; fine for a pilot
+      - key: Storage__LocalRoot
+        value: /app/media
+      - key: Cache__Provider
+        value: Memory
+      - key: Messaging__Provider
+        value: InProcess
+      - key: Push__Provider
+        value: None

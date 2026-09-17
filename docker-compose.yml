@@ -40,5 +40,70 @@ services:
       - "5672:5672"
       - "15672:15672"
 
+  # Metrics the API already exposes at /metrics, and the graphs that read them. Both are
+  # provisioned from ops/ rather than configured by hand, so a fresh volume comes up with the
+  # dashboard and the alert rules already there.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: parknest-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/prometheus:/etc/prometheus:ro
+      - parknest-prometheus:/prometheus
+    # The API runs on the host, not in this network. Docker Desktop resolves this name already;
+    # Linux does not, which is what the mapping is for.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Carries a firing rule to a person. Pointed at the sink below by default, because a delivery
+  # path that works out of the box is worth more than a Slack URL nobody has filled in.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: parknest-alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./ops/alertmanager:/etc/alertmanager:ro
+      - parknest-alertmanager:/alertmanager
+
+  # Prints whatever Alertmanager sends it. The point is visibility: when a rule fires and nothing
+  # arrives, `docker compose logs alert-sink` answers whether the alert ever left.
+  alert-sink:
+    image: mendhak/http-https-echo:34
+    container_name: parknest-alert-sink
+    environment:
+      HTTP_PORT: 8080
+    ports:
+      - "9095:8080"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: parknest-grafana
+    depends_on:
+      - prometheus
+    environment:
+      # Local only, and stated plainly rather than left as admin/admin: this stack scrapes a
+      # development API and is not exposed to anything.
+      GF_SECURITY_ADMIN_USER: parknest
+      GF_SECURITY_ADMIN_PASSWORD: parknest
+      GF_USERS_DEFAULT_THEME: dark
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - parknest-grafana:/var/lib/grafana
+
 volumes:
   parknest-pgdata:
+  parknest-prometheus:
+  parknest-grafana:
+  parknest-alertmanager:
