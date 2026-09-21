@@ -18,12 +18,13 @@ internal static class PaymentTestSupport
     {
         var wrapped = Microsoft.Extensions.Options.Options.Create(options ?? new PaymentOptions());
 
-        var settlement = new PaymentSettlement(h.Db, h.Wallets, h.Clock, NullLogger<PaymentSettlement>.Instance);
+        var settlement = new PaymentSettlement(
+            h.Db, h.Wallets, h.Analytics, h.Clock, NullLogger<PaymentSettlement>.Instance);
         var reconciler = new PaymentReconciler(
             h.Db, gateway, settlement, h.Clock, wrapped, NullLogger<PaymentReconciler>.Instance);
 
         var payments = new PaymentService(
-            h.Db, gateway, settlement, reconciler, new PaymentUrls(wrapped),
+            h.Db, gateway, settlement, reconciler, h.Analytics, new PaymentUrls(wrapped),
             h.CurrentUser, h.Clock,
             Microsoft.Extensions.Options.Options.Create(h.Options), wrapped,
             NullLogger<PaymentService>.Instance);

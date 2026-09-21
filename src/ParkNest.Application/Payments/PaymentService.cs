@@ -2,7 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Analytics;
 using ParkNest.Application.Options;
+using ParkNest.Domain.Analytics;
 using ParkNest.Domain.Common;
 using ParkNest.Domain.Payments;
 
@@ -55,6 +57,7 @@ public sealed class PaymentService : IPaymentService
     private readonly IPaymentGateway _gateway;
     private readonly IPaymentSettlement _settlement;
     private readonly IPaymentReconciler _reconciler;
+    private readonly IAnalyticsRecorder _analytics;
     private readonly PaymentUrls _urls;
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
@@ -67,6 +70,7 @@ public sealed class PaymentService : IPaymentService
         IPaymentGateway gateway,
         IPaymentSettlement settlement,
         IPaymentReconciler reconciler,
+        IAnalyticsRecorder analytics,
         PaymentUrls urls,
         ICurrentUser currentUser,
         IClock clock,
@@ -78,6 +82,7 @@ public sealed class PaymentService : IPaymentService
         _gateway = gateway;
         _settlement = settlement;
         _reconciler = reconciler;
+        _analytics = analytics;
         _urls = urls;
         _currentUser = currentUser;
         _clock = clock;
@@ -169,6 +174,17 @@ public sealed class PaymentService : IPaymentService
 
         _db.PaymentOrders.Add(order);
         await _db.SaveChangesAsync(cancellationToken);
+
+        // The top of the payment funnel: somebody was sent to a gateway. Counted after the save,
+        // never before, because the recorder saves through this same context. Whether the money
+        // arrives is a separate hit, recorded where the gateway's verdict is applied.
+        await _analytics.RecordAsync(
+            new AnalyticsHit(
+                AnalyticsEventNames.PaymentStarted,
+                UserId: userId,
+                Amount: amount,
+                Detail: _gateway.Name),
+            cancellationToken);
 
         return new StartPaymentResult(order.Id, order.ProviderOrderId, order.Amount, gatewayOrder.CheckoutPayload);
     }

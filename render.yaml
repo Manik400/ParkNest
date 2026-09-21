@@ -34,7 +34,21 @@ services:
       - key: Kyc__Pepper
         generateValue: true
       - key: Auth__AdminEmails__0
-        sync: false # your email, so your account is the platform admin
+        sync: false # your email, so your account is the platform admin. Read on every sign-in,
+        # so adding it here promotes an account that already existed.
+
+      # --- The site counter -------------------------------------------------------------------
+      # Visits, searches, bookings and payment attempts, at /analytics in the console. Viewers is
+      # an email allow-list on top of the admin role; set it to your own address to keep the
+      # figures with you even if a second operator is ever given the admin role. No IP address,
+      # email or name is stored - a visitor is a random id their own browser mints.
+      - key: Analytics__Viewers__0
+        sync: false # the same address as Auth__AdminEmails__0
+      - key: Maintenance__AllowDataReset
+        # Lets the admin wipe bookings, wallets, listings and payments from the console
+        # (accounts and price bands survive) - for a pilot on Neon's free tier. Set to false
+        # the day there is real money in the ledger; Production refuses to start with it on.
+        value: "true"
 
       # --- Sign-in codes by email, over Brevo's HTTPS API --------------------------------------
       # Render's free plan blocks outbound SMTP ports 25/465/587, so Gmail SMTP cannot work here.

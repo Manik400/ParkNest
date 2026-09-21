@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/api.service';
 import {
   CityPricingConfig,
+  CityRequestSummary,
   PricingBandChange,
   UpsertBandRequest,
   VehicleType,
@@ -157,6 +158,42 @@ import {
               </tbody>
             </table>
           </div>
+        }
+      </section>
+
+      <!-- Here rather than on its own screen, because adding a city is adding a price band:
+           the ask and the action belong on the same page. -->
+      <section class="card stack">
+        <h2>Cities people asked for</h2>
+
+        @if (cityRequests().length === 0) {
+          <p class="muted">Nobody has asked for a new city yet.</p>
+        } @else {
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>City</th>
+                  <th class="numeric">Asked by</th>
+                  <th>Last asked</th>
+                  <th>What they said</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (ask of cityRequests(); track ask.city) {
+                  <tr>
+                    <td>{{ ask.city }}</td>
+                    <td class="numeric">{{ ask.count }} {{ ask.count === 1 ? 'person' : 'people' }}</td>
+                    <td>{{ ask.lastAskedAt | date: 'd MMM' }}</td>
+                    <td class="muted">{{ ask.notes.join(' · ') || '—' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <p class="muted small">
+            Opening a city is a code change (the catalogue in <code>Cities.cs</code>) plus a band here.
+          </p>
         }
       </section>
 
@@ -409,8 +446,16 @@ export class PricingComponent implements OnInit {
     return `${range}${overstay}${state}`;
   }
 
+  readonly cityRequests = signal<CityRequestSummary[]>([]);
+
   private load(): void {
     this.loading.set(true);
+
+    this.api.cityRequests().subscribe({
+      next: (asks) => this.cityRequests.set(asks),
+      // Not worth a banner over the bands: the list is context, not the job.
+      error: () => this.cityRequests.set([]),
+    });
 
     this.api.pricingBands().subscribe({
       next: (bands) => {

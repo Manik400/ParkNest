@@ -14,6 +14,13 @@ public interface ICurrentUser
 
     UserRole? Role { get; }
 
+    /// <summary>
+    /// The address the caller signed in with, lower-cased, or null for an account created by
+    /// phone. Read only where a check is against a named person rather than a role — the
+    /// analytics allow-list — and never as a substitute for <see cref="UserId"/>.
+    /// </summary>
+    string? Email { get; }
+
     bool IsAuthenticated { get; }
 
     /// <summary>The caller's id, or <see cref="UnauthorizedException"/> if there isn't one.</summary>

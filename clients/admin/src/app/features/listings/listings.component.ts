@@ -365,8 +365,9 @@ export class ListingsComponent implements OnInit {
     }
   }
 
-  dayName(day: number): string {
-    return DAY_NAMES[day] ?? String(day);
+  /** The API writes the enum as its name ("Monday"); a number is accepted in case that changes. */
+  dayName(day: number | string): string {
+    return typeof day === 'number' ? DAY_NAMES[day] ?? String(day) : String(day);
   }
 
   /** "09:00:00" → "09:00", plus the two special cases the API's window model allows. */

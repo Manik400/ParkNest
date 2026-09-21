@@ -11,19 +11,22 @@ public sealed class TestCurrentUser : ICurrentUser
 {
     public Guid? UserId { get; private set; }
     public UserRole? Role { get; private set; }
+    public string? Email { get; private set; }
 
     public bool IsAuthenticated => UserId.HasValue;
 
-    public void SignIn(Guid userId, UserRole role = UserRole.Both)
+    public void SignIn(Guid userId, UserRole role = UserRole.Both, string? email = null)
     {
         UserId = userId;
         Role = role;
+        Email = email?.ToLowerInvariant();
     }
 
     public void SignOut()
     {
         UserId = null;
         Role = null;
+        Email = null;
     }
 
     public Guid RequireUserId() => UserId ?? throw new UnauthorizedException();
