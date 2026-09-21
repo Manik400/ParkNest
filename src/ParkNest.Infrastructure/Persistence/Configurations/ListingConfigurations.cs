@@ -4,6 +4,21 @@ using ParkNest.Domain.Listings;
 
 namespace ParkNest.Infrastructure.Persistence.Configurations;
 
+public sealed class CityRequestConfiguration : IEntityTypeConfiguration<CityRequest>
+{
+    public void Configure(EntityTypeBuilder<CityRequest> builder)
+    {
+        builder.ToTable("city_requests");
+        builder.HasKey(r => r.Id);
+
+        builder.Property(r => r.City).HasMaxLength(80).IsRequired();
+        builder.Property(r => r.Note).HasMaxLength(300);
+
+        // The admin list groups by city; the dedupe on write looks up by user and city.
+        builder.HasIndex(r => new { r.UserId, r.City });
+    }
+}
+
 public sealed class ParkingSpaceConfiguration : IEntityTypeConfiguration<ParkingSpace>
 {
     public void Configure(EntityTypeBuilder<ParkingSpace> builder)

@@ -93,6 +93,12 @@ builder.Services
 // Partitioned by remote IP. Behind a reverse proxy that means the proxy unless it is configured to
 // forward the client address, so ForwardedHeaders has to be on before this is load-bearing in a
 // real deployment.
+// The ceilings are configuration so a test run can lift them: Development sets them high in
+// appsettings.Development.json, because an end-to-end suite signs in a fresh account per test and
+// would otherwise hit the OTP limiter by the fourth one. The defaults are the production values.
+var rateLimits = builder.Configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>()
+    ?? new RateLimitOptions();
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -122,7 +128,7 @@ builder.Services.AddRateLimiter(options =>
         ClientKey(http),
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 10,
+            PermitLimit = rateLimits.OtpRequestsPer15Minutes,
             Window = TimeSpan.FromMinutes(15),
             QueueLimit = 0
         }));
@@ -133,7 +139,7 @@ builder.Services.AddRateLimiter(options =>
         ClientKey(http),
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 30,
+            PermitLimit = rateLimits.OtpVerifiesPer15Minutes,
             Window = TimeSpan.FromMinutes(15),
             QueueLimit = 0
         }));
@@ -158,6 +164,18 @@ builder.Services.AddRateLimiter(options =>
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 60,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
+    // The site counter's own endpoint: anonymous, and the only one a page calls on every
+    // navigation. Loose enough that a real person clicking around never meets it, tight enough
+    // that one caller cannot write rows all day — and a shed hit costs a tally, nothing more.
+    options.AddPolicy(RateLimitPolicies.AnalyticsCollect, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 120,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         }));

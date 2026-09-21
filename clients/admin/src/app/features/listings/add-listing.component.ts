@@ -1,12 +1,13 @@
-import { Component, ViewChild, inject, signal } from '@angular/core';
+import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
+import { environment } from '../../../environments/environment';
 import { ApiService } from '../../core/api.service';
 import { LocationService } from '../../shared/location.service';
 import { MapPickerComponent } from '../../shared/map-picker.component';
 import { SearchService } from '../../shared/search.service';
-import { AvailabilityWindowRequest, DAY_NAMES, VehicleType } from '../../core/models';
+import { AvailabilityWindowRequest, City, DAY_NAMES, ListingPhoto, VehicleType } from '../../core/models';
 
 interface DayRow {
   open: boolean;
@@ -28,6 +29,38 @@ interface DayRow {
         <div class="banner banner--error" role="alert">{{ message }}</div>
       }
 
+      @if (created(); as listing) {
+        <!-- Step two, on the same page: a listing without a photo is the one renters scroll
+             past, and sending the host off to find the upload on another screen is how a
+             listing ends up without one. -->
+        <section class="card stack">
+          <div>
+            <h2>{{ listing.status === 'Published' ? 'Live. Now add photos' : 'Saved. Now add photos' }}</h2>
+            <p class="muted">Up to six. The first one is the cover renters see in search.</p>
+          </div>
+
+          @if (publishFailure(); as message) {
+            <div class="banner banner--warn" role="status">{{ message }}</div>
+          }
+
+          <div class="photos">
+            @for (p of photos(); track p.id) {
+              <div class="photo shot"><img [src]="asset(p.url)" alt="" /></div>
+            }
+            @if (photos().length < 6) {
+              <label class="photo add-photo">
+                <input type="file" accept="image/*" multiple (change)="upload($event)" [disabled]="busy()" />
+                <span>{{ busy() ? 'Uploading…' : '+ Add photo' }}</span>
+              </label>
+            }
+          </div>
+
+          <div class="row">
+            <a class="btn primary" routerLink="/listings">Done</a>
+            <a class="btn" [routerLink]="['/spaces', listing.id]">See it as a renter</a>
+          </div>
+        </section>
+      } @else {
       <form class="stack" (ngSubmit)="save()">
         <section class="card stack">
           <h2>The space</h2>
@@ -45,7 +78,37 @@ interface DayRow {
 
             <div>
               <label for="city">City</label>
-              <input id="city" name="city" [(ngModel)]="form.city" />
+              <!-- A list, not a box: the price band is looked up by this name, and a renter who
+                   searched Bengaluru must never be shown a driveway whose host typed Gurgaon. -->
+              <select id="city" name="city" [(ngModel)]="form.city" (ngModelChange)="onCityChange()">
+                @for (c of cities(); track c.name) {
+                  <option [value]="c.name">{{ c.name }}, {{ c.state }}</option>
+                }
+              </select>
+              @if (selectedCity(); as c) {
+                @if (!c.hasPricing) {
+                  <small class="muted">
+                    No price band for {{ c.name }} yet. You can save a draft; publishing waits for one.
+                  </small>
+                }
+              }
+              <button type="button" class="ghost sm ask-toggle" (click)="askingForCity.set(!askingForCity())">
+                Don't see your city? Ask for it
+              </button>
+              @if (askingForCity()) {
+                <div class="ask stack">
+                  <input name="askCity" [(ngModel)]="askCity" placeholder="Which city?" />
+                  <input name="askNote" [(ngModel)]="askNote" placeholder="Anything we should know (optional)" />
+                  <div class="row">
+                    <button type="button" class="sm" [disabled]="busy() || !askCity.trim()" (click)="requestCity()">
+                      Send the request
+                    </button>
+                    @if (asked()) {
+                      <span class="muted small">Noted — thanks. We open cities by demand.</span>
+                    }
+                  </div>
+                </div>
+              }
             </div>
 
             <div>
@@ -104,7 +167,7 @@ interface DayRow {
             <div>
               <label for="tz">Time zone</label>
               <input id="tz" name="tz" [(ngModel)]="form.timeZoneId" />
-              <small class="muted">Your opening hours are read in this zone.</small>
+              <small class="muted">Set from the city. Your opening hours are read in this zone.</small>
             </div>
           </div>
         </section>
@@ -158,6 +221,7 @@ interface DayRow {
           </label>
         </div>
       </form>
+      }
     </div>
   `,
   styles: [
@@ -226,16 +290,160 @@ interface DayRow {
         align-items: center;
         gap: var(--space-2);
       }
+
+      .ask-toggle {
+        margin-top: 6px;
+        padding: 0;
+        height: auto;
+        font-weight: 600;
+      }
+
+      .ask {
+        margin-top: 8px;
+        padding: 12px;
+        border: 1px dashed var(--border-strong);
+        border-radius: var(--r-input);
+      }
+
+      .photos {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 12px;
+      }
+
+      .shot {
+        aspect-ratio: 4 / 3;
+        overflow: hidden;
+      }
+
+      .shot img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .add-photo {
+        aspect-ratio: 4 / 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px dashed var(--border-strong);
+        cursor: pointer;
+        font-weight: 600;
+        color: var(--accent-600);
+      }
+
+      .add-photo input {
+        display: none;
+      }
     `,
   ],
 })
-export class AddListingComponent {
+export class AddListingComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly location = inject(LocationService);
   private readonly search = inject(SearchService);
 
   @ViewChild('picker') picker?: MapPickerComponent;
+
+  readonly cities = signal<City[]>([]);
+  readonly askingForCity = signal(false);
+  readonly asked = signal(false);
+  askCity = '';
+  askNote = '';
+
+  /** Set once the draft exists; the page then shows the photo step instead of the form. */
+  readonly created = signal<{ id: string; status: string } | null>(null);
+  readonly photos = signal<ListingPhoto[]>([]);
+  readonly publishFailure = signal<string | null>(null);
+
+  readonly selectedCity = computed(() => this.cities().find((c) => c.name === this.form.city) ?? null);
+
+  ngOnInit(): void {
+    this.api.cities().subscribe({
+      next: (cities) => {
+        this.cities.set(cities);
+        if (!cities.some((c) => c.name === this.form.city) && cities[0]) {
+          this.form.city = cities[0].name;
+        }
+        this.onCityChange();
+      },
+      error: (err: Error) => this.error.set(err.message),
+    });
+  }
+
+  /** The pin and the clock follow the city, so a host in Pune does not start on Bengaluru. */
+  onCityChange(): void {
+    const city = this.selectedCity();
+    if (!city) {
+      return;
+    }
+    this.form.timeZoneId = city.timeZoneId;
+    // Only recentre the pin if it has not been placed: a host who already dragged it to their
+    // gate should not lose that to a city they picked afterwards.
+    if (!this.pinPlaced) {
+      this.form.latitude = city.latitude;
+      this.form.longitude = city.longitude;
+      this.picker?.moveTo(city.latitude, city.longitude);
+    }
+  }
+
+  requestCity(): void {
+    this.busy.set(true);
+    this.error.set(null);
+    this.api.requestCity(this.askCity.trim(), this.askNote.trim() || null).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.asked.set(true);
+      },
+      error: (err: Error) => {
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  asset(url: string): string {
+    return url.startsWith('http') ? url : `${environment.apiBaseUrl}${url}`;
+  }
+
+  /** Several files, one after another: the API takes one per request. */
+  upload(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    const listing = this.created();
+    input.value = '';
+
+    if (!listing || files.length === 0) {
+      return;
+    }
+
+    this.busy.set(true);
+    this.error.set(null);
+
+    const next = (index: number): void => {
+      if (index >= files.length || this.photos().length >= 6) {
+        this.busy.set(false);
+        return;
+      }
+
+      this.api.addListingPhoto(listing.id, files[index]).subscribe({
+        next: (photo) => {
+          this.photos.update((current) => [...current, photo]);
+          next(index + 1);
+        },
+        error: (err: Error) => {
+          this.busy.set(false);
+          this.error.set(err.message);
+        },
+      });
+    };
+
+    next(0);
+  }
+
+  private pinPlaced = false;
 
   form = {
     title: '',
@@ -264,6 +472,7 @@ export class AddListingComponent {
 
     try {
       const position = await this.location.current();
+      this.pinPlaced = true;
       this.form.latitude = round6(position.latitude);
       this.form.longitude = round6(position.longitude);
       this.picker?.moveTo(this.form.latitude, this.form.longitude);
@@ -284,6 +493,7 @@ export class AddListingComponent {
         this.error.set("We couldn't find that address. Drag the pin onto the entrance instead.");
         return;
       }
+      this.pinPlaced = true;
       this.form.latitude = hit.latitude;
       this.form.longitude = hit.longitude;
       this.picker?.moveTo(hit.latitude, hit.longitude);
@@ -295,6 +505,7 @@ export class AddListingComponent {
   }
 
   onPointChanged(point: { latitude: number; longitude: number }): void {
+    this.pinPlaced = true;
     this.form.latitude = round6(point.latitude);
     this.form.longitude = round6(point.longitude);
   }
@@ -361,19 +572,21 @@ export class AddListingComponent {
         next: (created) => {
           if (!this.publishNow) {
             this.busy.set(false);
-            void this.router.navigate(['/listings']);
+            this.created.set({ id: created.id, status: 'Draft' });
             return;
           }
 
           this.api.publishListing(created.id).subscribe({
             next: () => {
               this.busy.set(false);
-              void this.router.navigate(['/listings']);
+              this.created.set({ id: created.id, status: 'Published' });
             },
             error: (err: Error) => {
               this.busy.set(false);
-              // The draft was saved; only publishing failed (usually the price band).
-              this.error.set(err.message + ' The listing was saved as a draft.');
+              // The draft was saved; only publishing failed (usually the price band). Still
+              // worth adding photos to.
+              this.publishFailure.set(err.message + ' The listing was saved as a draft.');
+              this.created.set({ id: created.id, status: 'Draft' });
             },
           });
         },

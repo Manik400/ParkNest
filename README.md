@@ -45,6 +45,12 @@ degrades cleanly without them.
 | Push | FCM v1 off the same stored notification. `Push:Provider=None` by default — no Firebase project needed |
 | SignalR | Live session, overstay and wallet updates on a per-user group |
 | Metrics | Prometheus at `/metrics`, plus an hourly ledger reconciliation gauge |
+| Site analytics | Visits, page views, searches, sign-ins, bookings and the payment funnel, counted in Postgres and shown at `/analytics`. Owner-only, no personal data. See [Site analytics](#site-analytics) |
+| Transaction references | Every ledger transaction carries a `TXN-…` reference a person can quote, and a reversal (a released hold, a refunded payout, a dispute adjustment) points at the transaction it undoes |
+| Receipts | `/bookings/:id/receipt` — overview, breakdown, transactions, outcome. Print is the PDF |
+| Cities | A catalogue (`Cities.cs`), a dropdown on the listing form, and a pin that must fall inside the chosen city. A city not on the list can be requested; the asks show on the pricing-bands page |
+| Data reset | Admin-only, phrase-confirmed, off unless `Maintenance:AllowDataReset` — wipes everything but accounts and price bands. Production refuses to start with it on |
+| End-to-end tests | Playwright against the real stack, desktop and phone, in `clients/admin/e2e` |
 | Dashboards and alerts | Provisioned Grafana, Prometheus and Alertmanager in `docker compose`. See [ops/](ops/README.md) |
 | Geo-search cache | Optional. `Cache:Provider` of None / Memory / Redis; off by default, invalidated on listing changes |
 | Pricing band audit | Every band edit recorded with both sides, the operator and the reason; visible in the console |
@@ -93,10 +99,23 @@ nothing in the API log to explain it.
 Swagger is at `/swagger` in Development; `/health` is always available.
 
 ```bash
-dotnet test tests/ParkNest.UnitTests  # 300 tests, no Docker required
+dotnet test tests/ParkNest.UnitTests  # 440 tests, no Docker required
 ```
 
 Tests run on in-memory SQLite, so they need no container and finish in about a second.
+
+The console has an end-to-end suite too — Playwright, in `clients/admin/e2e`, driving the real
+stack: the Angular dev server and the API in Development (sandbox payments, the OTP code shown on
+the page, the admin phone from `appsettings.Development.json`). It uses the Chrome already on the
+machine, so nothing is downloaded. Start the API, then:
+
+```bash
+cd clients/admin && npm run e2e          # 14 tests, each at desktop and phone size
+```
+
+`npm run e2e:report` opens the HTML report; a failure keeps a screenshot and a trace. Test setup
+signs in through the API, one code per account per run, and Development lifts the per-IP OTP
+ceilings (`RateLimits`) so the run is not throttled at the fourth sign-in.
 
 The integration suite covers geo-search, which SQLite fundamentally cannot — the generated
 `geography` column, the GiST index and the raw SQL only exist in Postgres. It skips unless pointed
@@ -379,6 +398,50 @@ What is still missing is a Firebase project. Create one, download `google-servic
 Gradle plugin is applied only when that file is present, so a clone without it builds and runs
 exactly as before. The file is git-ignored, because one developer's Firebase project silently
 becoming everybody's is not a good failure.
+
+## Site analytics
+
+A hit counter with the rest of the funnel attached. Every visit, page view, search, sign-in,
+booking and payment attempt is written to `analytics_events` as it happens, and the owner reads it
+at `/analytics` in the console.
+
+Two sides feed it, and the split is the point:
+
+- **The browser** reports that the site was opened and which screens were looked at. Anonymous by
+  necessity — the visit that matters happens before anyone signs in — so the endpoint treats
+  everything it receives as hostile: the event name must be one of a fixed list, the path is
+  stripped of its query string and has ids folded into `:id`, and a referrer is reduced to its
+  origin. It is rate-limited per caller, and answers 204 whether or not it kept the hit.
+- **The API** records what actually happened: a code requested, an account created, a booking
+  made, an order started with a gateway, a payment taken or refused. Those cannot be reported by a
+  client, because a client could lie about them, and the gap between "payments started" and
+  "payments taken" is the one number on the page worth acting on.
+
+Nothing personal is stored. There is no IP address, no email and no name in the table — a visitor
+is a random id their own browser mints and can throw away by clearing its storage. Counting people
+did not require identifying them.
+
+```jsonc
+"Analytics": {
+  "Enabled": true,          // false stops every recorder writing, without a deploy
+  "Viewers": [],            // empty: any admin. An address: only that person, even among admins
+  "RetentionDays": 365,     // a daily sweep deletes what is older; 0 keeps everything
+  "MaxWindowDays": 180      // the longest range the dashboard may ask for in one request
+}
+```
+
+`Viewers` sits **on top of** the admin role, not instead of it. Empty is right for a one-person
+platform. Naming an address — `Analytics__Viewers__0=you@example.com` — is what keeps the revenue
+figures with the owner after a second operator is given the admin role to work the identity-check
+queue.
+
+Being the admin in the first place is `Auth:AdminEmails`. That list is read on **every** sign-in
+rather than only when an account is created, so adding your address promotes the account you
+already had — which is the order anybody actually does this in.
+
+The counter is deliberately lossy. A recorder that fails logs a warning and returns; it is called
+from the middle of a checkout, and a tally that could fail a payment would be worth less than no
+tally at all.
 
 ## A note on the database
 

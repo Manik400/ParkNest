@@ -1,12 +1,26 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
-import { Component, Input, OnInit, inject, signal } from '@angular/core';
+import { Component, Input, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
-import { BookingDetail, CancellationTerms } from '../../core/models';
+import { BookingDetail, CancellationTerms, LedgerEntrySummary } from '../../core/models';
 import { StatusPillComponent } from '../../shared/status-pill.component';
+import { describeMoney } from './booking-money';
 
+/** The ledger trail grouped by transaction: one row per movement, its legs beneath it. */
+interface TrailGroup {
+  reference: string;
+  revertsReference: string | null;
+  type: string;
+  createdAt: string;
+  entries: LedgerEntrySummary[];
+}
+
+/**
+ * One booking. The strip at the top answers the three questions anyone opens this page with —
+ * what state is it in, when is it, what did it cost — before the detail below explains how.
+ */
 @Component({
   selector: 'app-booking-detail',
   standalone: true,
@@ -24,12 +38,32 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
       }
 
       @if (detail(); as booking) {
-        <div class="row space-between">
-          <h1>{{ booking.summary.spaceTitle }}</h1>
-          <app-status-pill [status]="booking.summary.status" />
-        </div>
-
-        <p class="muted">{{ booking.summary.spaceAddress }}</p>
+        @if (money(); as m) {
+          <!-- The answer first. Status, when, and the one number — then the sentence that says
+               how it ended. Everything below is the working. -->
+          <section class="summary" [class]="'summary tone-' + m.tone">
+            <div class="summary-main">
+              <div>
+                <div class="overline">{{ m.statusLabel }}</div>
+                <h1>{{ booking.summary.spaceTitle }}</h1>
+                <div class="muted">{{ booking.summary.spaceAddress }}</div>
+              </div>
+              <div class="figure">
+                <div class="overline">{{ m.headlineLabel }}</div>
+                <div class="big">{{ m.headline | currency: 'INR' : 'symbol' : '1.0-0' }}</div>
+              </div>
+            </div>
+            <div class="summary-foot">
+              <div class="when">
+                <strong>{{ booking.summary.startTime | date: 'EEE d MMM, h:mm a' }}</strong>
+                → {{ booking.summary.expectedEndTime | date: 'h:mm a' }}
+                <span class="muted">· {{ booking.bookedMinutes }} min booked</span>
+              </div>
+              <p class="conclusion">{{ m.conclusion }}</p>
+              <a class="btn sm" [routerLink]="['/bookings', bookingId, 'receipt']">Receipt</a>
+            </div>
+          </section>
+        }
 
         <!-- The session controls. Tier 1 detection is the renter tapping these; Tier 2/3 will
              replace them with a QR scan or ANPR without changing what happens to the money. -->
@@ -106,6 +140,29 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
           </div>
         }
 
+        @if (money(); as m) {
+          <section class="card">
+            <h2>The money</h2>
+            <p class="muted small">
+              Rate {{ booking.summary.ratePerHour | currency: 'INR' : 'symbol' : '1.0-0' }}/hr.
+              Every line below is a movement the ledger actually made; the raw trail is further down.
+            </p>
+            <ul class="lines">
+              @for (line of m.lines; track line.label) {
+                <li [class.emphasis]="line.emphasis">
+                  <span class="label">
+                    {{ line.label }}
+                    @if (line.note) {
+                      <span class="muted small">· {{ line.note }}</span>
+                    }
+                  </span>
+                  <span class="amount">{{ line.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</span>
+                </li>
+              }
+            </ul>
+          </section>
+        }
+
         <section class="card">
           <h2>Session</h2>
           <dl>
@@ -130,32 +187,6 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
             <div>
               <dt>Detection</dt>
               <dd>{{ booking.startDetectionMethod ?? '—' }} → {{ booking.endDetectionMethod ?? '—' }}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="card">
-          <h2>Money</h2>
-          <dl>
-            <div>
-              <dt>Rate</dt>
-              <dd>{{ booking.summary.ratePerHour | currency: 'INR' : 'symbol' : '1.2-2' }} / hr</dd>
-            </div>
-            <div>
-              <dt>Held up front</dt>
-              <dd>{{ booking.summary.holdAmount | currency: 'INR' : 'symbol' : '1.2-2' }}</dd>
-            </div>
-            <div>
-              <dt>Overstay</dt>
-              <dd>{{ booking.overstayAmount | currency: 'INR' : 'symbol' : '1.2-2' }}</dd>
-            </div>
-            <div>
-              <dt>Settled</dt>
-              <dd>{{ booking.summary.settledAmount | currency: 'INR' : 'symbol' : '1.2-2' }}</dd>
-            </div>
-            <div>
-              <dt>Platform fee</dt>
-              <dd>{{ booking.platformFee | currency: 'INR' : 'symbol' : '1.2-2' }}</dd>
             </div>
           </dl>
         </section>
@@ -201,40 +232,56 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
         }
 
         <section class="card stack">
-          <div>
-            <h2>Ledger trail</h2>
-            <p class="muted">
-              Every credit movement for this booking, in order. Debits and credits balance within
-              each transaction.
-            </p>
+          <div class="trail-head">
+            <div>
+              <h2>Ledger trail</h2>
+              <p class="muted">
+                Every credit movement for this booking, with the reference to quote if you need
+                to ask about one.
+              </p>
+            </div>
+            @if (booking.ledgerEntries.length > 0) {
+              <button type="button" class="ghost sm" (click)="showLegs.set(!showLegs())">
+                {{ showLegs() ? 'Hide the legs' : 'Show every leg' }}
+              </button>
+            }
           </div>
 
           @if (booking.ledgerEntries.length === 0) {
             <p class="muted">No movements yet — credits are reserved but nothing has settled.</p>
           } @else {
-            <div class="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Transaction</th>
-                    <th>Account</th>
-                    <th>Direction</th>
-                    <th class="numeric">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (entry of booking.ledgerEntries; track entry.transactionId + entry.account + entry.direction) {
-                    <tr>
-                      <td>{{ entry.createdAt | date: 'short' }}</td>
-                      <td>{{ entry.transactionType }}</td>
-                      <td>{{ entry.account }}</td>
-                      <td [class.debit]="entry.direction === 'Debit'">{{ entry.direction }}</td>
-                      <td class="numeric">{{ entry.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</td>
-                    </tr>
+            <div class="trail">
+              @for (group of trail(); track group.reference) {
+                <div class="txn">
+                  <div class="txn-head">
+                    <div>
+                      <div class="txn-type">{{ describeType(group.type) }}</div>
+                      <div class="muted small">
+                        {{ group.createdAt | date: 'd MMM, h:mm:ss a' }} · <code>{{ group.reference }}</code>
+                        @if (group.revertsReference) {
+                          · reverses <code>{{ group.revertsReference }}</code>
+                        }
+                      </div>
+                    </div>
+                    <div class="txn-amount">
+                      {{ groupAmount(group) | currency: 'INR' : 'symbol' : '1.2-2' }}
+                    </div>
+                  </div>
+                  @if (showLegs()) {
+                    <table class="legs">
+                      <tbody>
+                        @for (entry of group.entries; track entry.account + entry.direction) {
+                          <tr>
+                            <td>{{ entry.account }}</td>
+                            <td [class.debit]="entry.direction === 'Debit'">{{ entry.direction }}</td>
+                            <td class="numeric">{{ entry.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
                   }
-                </tbody>
-              </table>
+                </div>
+              }
             </div>
           }
         </section>
@@ -243,8 +290,100 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
   `,
   styles: [
     `
-      .space-between {
+      .summary {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-panel);
+        padding: 22px clamp(18px, 3vw, 28px);
+        border-left: 6px solid var(--border-strong);
+      }
+
+      .tone-good {
+        border-left-color: var(--success-ink);
+      }
+
+      .tone-warn {
+        border-left-color: var(--warn-ink);
+      }
+
+      .tone-bad {
+        border-left-color: var(--danger-ink);
+      }
+
+      .summary-main {
+        display: flex;
         justify-content: space-between;
+        align-items: flex-start;
+        gap: 24px;
+        flex-wrap: wrap;
+      }
+
+      .summary h1 {
+        margin: 4px 0 4px;
+      }
+
+      .figure {
+        text-align: right;
+      }
+
+      .big {
+        font: 600 clamp(30px, 4vw, 40px) / 1.05 var(--font-display);
+        letter-spacing: -0.03em;
+        margin-top: 4px;
+      }
+
+      .summary-foot {
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--hairline);
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 6px 16px;
+        align-items: center;
+      }
+
+      .when {
+        grid-column: 1;
+      }
+
+      .conclusion {
+        grid-column: 1;
+        margin: 0;
+        color: var(--ink-soft);
+        max-width: 64ch;
+      }
+
+      .summary-foot .btn {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+      }
+
+      .lines {
+        list-style: none;
+        margin: 12px 0 0;
+        padding: 0;
+        max-width: 620px;
+      }
+
+      .lines li {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 10px 0;
+        border-top: 1px solid var(--hairline);
+      }
+
+      .lines li:first-child {
+        border-top: 0;
+      }
+
+      .lines .amount {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .lines .emphasis {
+        font-weight: 700;
       }
 
       dl {
@@ -277,6 +416,75 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
       .small {
         font-size: 0.8rem;
       }
+
+      .trail-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .trail {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .txn {
+        border: 1px solid var(--border);
+        border-radius: var(--r-card);
+        padding: 12px 14px;
+      }
+
+      .txn-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      .txn-type {
+        font-weight: 700;
+      }
+
+      .txn-amount {
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .legs {
+        margin-top: 10px;
+        width: 100%;
+      }
+
+      .legs td {
+        padding: 6px 8px;
+        font-size: 13px;
+      }
+
+      code {
+        font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+        font-size: 12px;
+        letter-spacing: 0.02em;
+      }
+
+      @media (max-width: 620px) {
+        .figure {
+          text-align: left;
+        }
+
+        .summary-foot {
+          grid-template-columns: 1fr;
+        }
+
+        .summary-foot .btn {
+          grid-column: 1;
+          grid-row: auto;
+          justify-self: start;
+        }
+      }
     `,
   ],
 })
@@ -290,6 +498,7 @@ export class BookingDetailComponent implements OnInit {
   readonly loading = signal(true);
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
+  readonly showLegs = signal(false);
   readonly outcome = signal<{
     billedMinutes: number;
     totalCharged: number;
@@ -302,8 +511,57 @@ export class BookingDetailComponent implements OnInit {
 
   readonly cancellation = signal<CancellationTerms | null>(null);
 
+  readonly money = computed(() => {
+    const d = this.detail();
+    return d ? describeMoney(d) : null;
+  });
+
+  /** The trail as transactions rather than legs: one row per thing that happened. */
+  readonly trail = computed<TrailGroup[]>(() => {
+    const entries = this.detail()?.ledgerEntries ?? [];
+    const groups = new Map<string, TrailGroup>();
+
+    for (const entry of entries) {
+      const group = groups.get(entry.transactionId) ?? {
+        reference: entry.reference,
+        revertsReference: entry.revertsReference,
+        type: entry.transactionType,
+        createdAt: entry.createdAt,
+        entries: [],
+      };
+      group.entries.push(entry);
+      groups.set(entry.transactionId, group);
+    }
+
+    return [...groups.values()];
+  });
+
   ngOnInit(): void {
     this.load();
+  }
+
+  /** A transaction's size: the debits, which equal the credits. */
+  groupAmount(group: TrailGroup): number {
+    return group.entries.filter((e) => e.direction === 'Debit').reduce((sum, e) => sum + e.amount, 0);
+  }
+
+  describeType(type: string): string {
+    switch (type) {
+      case 'Hold':
+        return 'Reserved from balance';
+      case 'ReleaseHold':
+        return 'Returned to balance';
+      case 'OverstayDebit':
+        return 'Extra time charged';
+      case 'Settlement':
+        return 'Settled: host paid, fee taken';
+      case 'Refund':
+        return 'Refunded';
+      case 'AdminAdjustment':
+        return 'Adjusted after a dispute';
+      default:
+        return type.replace(/([a-z])([A-Z])/g, '$1 $2');
+    }
   }
 
   raiseDispute(): void {

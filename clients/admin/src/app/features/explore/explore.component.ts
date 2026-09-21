@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
+import { TelemetryService } from '../../core/telemetry.service';
 import { NearbySpace, VehicleType } from '../../core/models';
 import { LocationService } from '../../shared/location.service';
 import { ResultsMapComponent } from '../../shared/results-map.component';
@@ -452,6 +453,7 @@ const VEHICLE_OPTIONS: Array<{ label: string; type: VehicleType | null }> = [
 })
 export class ExploreComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly telemetry = inject(TelemetryService);
   private readonly router = inject(Router);
   private readonly location = inject(LocationService);
   private readonly search = inject(SearchService);
@@ -590,6 +592,7 @@ export class ExploreComponent implements OnInit {
     }
     this.loading.set(true);
     this.error.set(null);
+    this.telemetry.search();
 
     this.api
       .searchNearby(

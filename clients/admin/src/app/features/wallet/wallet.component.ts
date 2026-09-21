@@ -140,7 +140,12 @@ import {
               <div class="entry">
                 <div>
                   <div class="what">{{ describe(entry) }}</div>
-                  <div class="muted small">{{ entry.createdAt | date: 'd MMM, h:mm a' }}</div>
+                  <div class="muted small">
+                    {{ entry.createdAt | date: 'd MMM, h:mm a' }} · <code>{{ entry.reference }}</code>
+                    @if (entry.revertsReference) {
+                      · reverses <code>{{ entry.revertsReference }}</code>
+                    }
+                  </div>
                 </div>
                 <div class="amt" [class.debit]="entry.direction === 'Debit'">
                   {{ entry.direction === 'Debit' ? '−' : '+' }}₹{{ entry.amount | number: '1.0-0' }}
@@ -230,6 +235,12 @@ import {
 
       .what {
         font-weight: 600;
+      }
+
+      code {
+        font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+        font-size: 12px;
+        letter-spacing: 0.02em;
       }
 
       .amt {

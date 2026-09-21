@@ -52,6 +52,7 @@ import { AuthService } from '../core/auth.service';
               @if (auth.isAdmin()) {
                 <div class="sep"></div>
                 <div class="menu-label">Operations</div>
+                <a routerLink="/analytics" role="menuitem">Site activity</a>
                 <a routerLink="/kyc" role="menuitem">Identity checks</a>
                 <a routerLink="/payouts" role="menuitem">Payouts</a>
                 <a routerLink="/pricing" role="menuitem">Pricing bands</a>

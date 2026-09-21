@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Analytics;
 using ParkNest.Application.Wallets;
+using ParkNest.Domain.Analytics;
 using ParkNest.Domain.Common;
 using ParkNest.Domain.Payments;
 
@@ -31,17 +33,20 @@ public sealed class PaymentSettlement : IPaymentSettlement
 {
     private readonly IParkNestDbContext _db;
     private readonly IWalletService _wallets;
+    private readonly IAnalyticsRecorder _analytics;
     private readonly IClock _clock;
     private readonly ILogger<PaymentSettlement> _logger;
 
     public PaymentSettlement(
         IParkNestDbContext db,
         IWalletService wallets,
+        IAnalyticsRecorder analytics,
         IClock clock,
         ILogger<PaymentSettlement> logger)
     {
         _db = db;
         _wallets = wallets;
+        _analytics = analytics;
         _clock = clock;
         _logger = logger;
     }
@@ -95,6 +100,15 @@ public sealed class PaymentSettlement : IPaymentSettlement
             order.Status = PaymentOrderStatus.Failed;
             order.FailureReason = outcome.FailureReason;
             await _db.SaveChangesAsync(cancellationToken);
+
+            await _analytics.RecordAsync(
+                new AnalyticsHit(
+                    AnalyticsEventNames.PaymentFailed,
+                    UserId: order.UserId,
+                    Amount: order.Amount,
+                    Detail: source),
+                cancellationToken);
+
             return new SettlementResult(true, "Recorded failure.");
         }
 
@@ -120,6 +134,17 @@ public sealed class PaymentSettlement : IPaymentSettlement
         _logger.LogInformation(
             "Credited {Amount} to {UserId} for payment order {OrderId} ({Source}).",
             order.Amount, order.UserId, order.Id, source);
+
+        // Counted here rather than at the webhook, because this is the one place all three routes
+        // to a verdict converge and the one place an order can only pass through once — so the
+        // funnel cannot double-count a gateway that retries.
+        await _analytics.RecordAsync(
+            new AnalyticsHit(
+                AnalyticsEventNames.PaymentSucceeded,
+                UserId: order.UserId,
+                Amount: order.Amount,
+                Detail: source),
+            cancellationToken);
 
         return new SettlementResult(true, "Credited.");
     }

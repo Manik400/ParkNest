@@ -38,8 +38,19 @@ public static class DependencyInjection
         services.Configure<PushOptions>(configuration.GetSection(PushOptions.SectionName));
         services.Configure<KycOptions>(configuration.GetSection(KycOptions.SectionName));
         services.Configure<CacheOptions>(configuration.GetSection(CacheOptions.SectionName));
+        services.Configure<AnalyticsOptions>(configuration.GetSection(AnalyticsOptions.SectionName));
+        services.Configure<MaintenanceOptions>(configuration.GetSection(MaintenanceOptions.SectionName));
 
         ValidateAuthOptions(configuration, environment);
+
+        // A button that empties the ledger has no place next to real money. Staging on the free
+        // tier is where it is wanted; Production is where it must not exist.
+        if (environment.IsProduction()
+            && (configuration.GetSection(MaintenanceOptions.SectionName).Get<MaintenanceOptions>()?.AllowDataReset ?? false))
+        {
+            throw new InvalidOperationException(
+                "Maintenance:AllowDataReset cannot be on in Production.");
+        }
         ValidateKycOptions(configuration, environment);
 
         // Either Host=…;Database=… or the postgresql:// URL a hosted provider's dashboard gives.
@@ -55,6 +66,7 @@ public static class DependencyInjection
         // Found the hard way: a Windows-default database landed on WIN1252, which has no rupee
         // sign and no Indian scripts at all.
         services.AddHostedService<DatabaseEncodingCheck>();
+        services.AddScoped<Application.Admin.IDataWiper, Persistence.PostgresDataWiper>();
 
         // AuthService itself is registered by AddParkNestApplication; only its infrastructure
         // collaborators (token signing, OTP delivery) are wired here.
@@ -71,6 +83,9 @@ public static class DependencyInjection
         // checkout, which is the difference between discovering a renter cannot pay while their
         // car is still in the bay and discovering it after they have driven away.
         services.AddHostedService<OverstayMeterService>();
+
+        // Trims the one table that grows with traffic rather than with business.
+        services.AddHostedService<Analytics.AnalyticsRetentionSweeper>();
 
         // Only where orders can actually be created. With payments disabled the sweep would wake
         // every five minutes to scan a table nothing writes to.

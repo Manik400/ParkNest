@@ -62,7 +62,14 @@ public sealed class ParkNestQueries : IParkNestQueries
             .OrderBy(e => e.CreatedAt)
             .Select(e => new LedgerEntrySummary(
                 e.LedgerTransactionId,
-                e.Transaction!.Type.ToString(),
+                e.Transaction!.Reference,
+                e.Transaction.RevertsTransactionId == null
+                    ? null
+                    : _db.LedgerTransactions
+                        .Where(r => r.Id == e.Transaction.RevertsTransactionId)
+                        .Select(r => r.Reference)
+                        .FirstOrDefault(),
+                e.Transaction.Type.ToString(),
                 e.AccountType.ToString(),
                 e.Direction.ToString(),
                 e.Amount,
@@ -190,7 +197,14 @@ public sealed class ParkNestQueries : IParkNestQueries
             .Take(Math.Clamp(limit, 1, MaxPageSize))
             .Select(e => new LedgerEntrySummary(
                 e.LedgerTransactionId,
-                e.Transaction!.Type.ToString(),
+                e.Transaction!.Reference,
+                e.Transaction.RevertsTransactionId == null
+                    ? null
+                    : _db.LedgerTransactions
+                        .Where(r => r.Id == e.Transaction.RevertsTransactionId)
+                        .Select(r => r.Reference)
+                        .FirstOrDefault(),
+                e.Transaction.Type.ToString(),
                 e.AccountType.ToString(),
                 e.Direction.ToString(),
                 e.Amount,

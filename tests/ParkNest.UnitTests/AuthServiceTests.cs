@@ -1,6 +1,7 @@
 using FluentAssertions;
 using ParkNest.Application.Auth;
 using Microsoft.EntityFrameworkCore;
+using ParkNest.Domain.Analytics;
 using ParkNest.Domain.Common;
 
 namespace ParkNest.UnitTests;
@@ -443,6 +444,7 @@ public sealed class AuthServiceTests : IDisposable
             new IOtpSender[] { _h.EmailSender },
             _h.Clock,
             Microsoft.Extensions.Options.Options.Create(_h.AuthOptions),
+            _h.Analytics,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<AuthService>.Instance);
 
         var act = () => emailOnly.RequestOtpAsync(Phone);
@@ -460,6 +462,44 @@ public sealed class AuthServiceTests : IDisposable
         var result = await _h.Auth.VerifyOtpAsync("ops@example.com", _h.EmailSender.LastCode!);
 
         result.Role.Should().Be(UserRole.Admin);
+    }
+
+    [Fact]
+    public async Task An_account_that_already_existed_is_promoted_when_its_address_joins_the_admin_list()
+    {
+        // The order people actually do this in: sign in first, add your address to the list
+        // afterwards. Reading the list only at account creation would leave the owner a
+        // permanent non-admin on their own platform.
+        await _h.Auth.RequestOtpAsync("owner@example.com");
+        var before = await _h.Auth.VerifyOtpAsync("owner@example.com", _h.EmailSender.LastCode!);
+        before.Role.Should().Be(UserRole.Both);
+
+        _h.AuthOptions.AdminEmails = new[] { "owner@example.com" };
+        _h.Clock.Advance(PastCooldown);
+
+        await _h.Auth.RequestOtpAsync("owner@example.com");
+        var after = await _h.Auth.VerifyOtpAsync("owner@example.com", _h.EmailSender.LastCode!);
+
+        after.Role.Should().Be(UserRole.Admin);
+    }
+
+    [Fact]
+    public async Task Signing_in_is_counted_and_the_address_is_not_recorded()
+    {
+        await _h.Auth.RequestOtpAsync("renter@example.com");
+        await _h.Auth.VerifyOtpAsync("renter@example.com", _h.EmailSender.LastCode!);
+
+        var recorded = await _h.Db.AnalyticsEvents.ToListAsync();
+
+        recorded.Select(e => e.Name).Should().Contain(new[]
+        {
+            AnalyticsEventNames.SignInRequested,
+            AnalyticsEventNames.SignedUp
+        });
+
+        // The channel is worth knowing; who it was sent to is not, and a table of every address
+        // that ever asked for a code is the one thing this must never become.
+        recorded.Should().OnlyContain(e => e.Detail == null || e.Detail == "Email");
     }
 
     private async Task<AuthResult> SignInAsync()

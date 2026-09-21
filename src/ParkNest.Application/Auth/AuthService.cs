@@ -4,7 +4,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Analytics;
 using ParkNest.Application.Options;
+using ParkNest.Domain.Analytics;
 using ParkNest.Domain.Common;
 using ParkNest.Domain.Users;
 
@@ -17,6 +19,7 @@ public sealed class AuthService : IAuthService
     private readonly IReadOnlyDictionary<OtpChannel, IOtpSender> _senders;
     private readonly IClock _clock;
     private readonly AuthOptions _options;
+    private readonly IAnalyticsRecorder _analytics;
     private readonly ILogger<AuthService> _logger;
 
     public AuthService(
@@ -25,6 +28,7 @@ public sealed class AuthService : IAuthService
         IEnumerable<IOtpSender> otpSenders,
         IClock clock,
         IOptions<AuthOptions> options,
+        IAnalyticsRecorder analytics,
         ILogger<AuthService> logger)
     {
         _db = db;
@@ -33,6 +37,7 @@ public sealed class AuthService : IAuthService
         _senders = otpSenders.ToDictionary(s => s.Channel);
         _clock = clock;
         _options = options.Value;
+        _analytics = analytics;
         _logger = logger;
     }
 
@@ -70,6 +75,14 @@ public sealed class AuthService : IAuthService
         await _db.SaveChangesAsync(cancellationToken);
 
         await sender.SendAsync(target.Value, code, cancellationToken);
+
+        // The channel, never the destination. An email address in the analytics table would make
+        // it a list of everyone who ever tried to sign in, which is the one thing it must not be.
+        await _analytics.RecordAsync(
+            new AnalyticsHit(
+                AnalyticsEventNames.SignInRequested,
+                Detail: target.Channel.ToString()),
+            cancellationToken);
 
         return new OtpChallenge(otp.ExpiresAt, sender.ExposesCodeInResponse ? code : null);
     }
@@ -122,10 +135,28 @@ public sealed class AuthService : IAuthService
             };
             _db.Users.Add(user);
         }
+        else if (IsAdmin(target) && user.Role != UserRole.Admin)
+        {
+            // The list is read on every sign-in, not only at the moment an account is created.
+            // Without this, adding your own address to Auth:AdminEmails does nothing whenever you
+            // had already signed in once before — which is exactly when somebody adds it.
+            //
+            // One direction only: removing an address does not demote, because the role is also
+            // settable by hand and a config change must not quietly undo that.
+            _logger.LogInformation("Promoting {UserId} to admin: the destination is on the admin list.", user.Id);
+            user.Role = UserRole.Admin;
+        }
 
         await _db.SaveChangesAsync(cancellationToken);
 
         var (result, _) = await IssueAsync(user, Guid.NewGuid(), isNewUser, cancellationToken);
+
+        await _analytics.RecordAsync(
+            new AnalyticsHit(
+                isNewUser ? AnalyticsEventNames.SignedUp : AnalyticsEventNames.SignedIn,
+                UserId: user.Id,
+                Detail: target.Channel.ToString()),
+            cancellationToken);
 
         return result;
     }
