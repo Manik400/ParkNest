@@ -33,16 +33,22 @@ while ($true) {
             $_.Exception.Message
     }
 
-    # Keep approximately the last 1 day of logs
-    $lines = @()
-    if (Test-Path $log) {
-        $lines = @(Get-Content $log -Tail 8639)
-    }
+    # Keep approximately the last 1 day of logs. Best effort: a full disk or a locked file must
+    # never stop the pinging, which is the only part that matters.
+    try {
+        $lines = @()
+        if (Test-Path $log) {
+            $lines = @(Get-Content $log -Tail 8639 -ErrorAction Stop)
+        }
 
-    Set-Content `
-        -Path $log `
-        -Value ($lines + $line) `
-        -Encoding utf8
+        Set-Content `
+            -Path $log `
+            -Value ($lines + $line) `
+            -Encoding utf8 `
+            -ErrorAction Stop
+    }
+    catch {
+    }
 
     # Console output is useful when manually testing
     Write-Output $line

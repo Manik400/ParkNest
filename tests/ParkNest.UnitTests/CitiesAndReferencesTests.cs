@@ -63,22 +63,21 @@ public sealed class CitiesAndReferencesTests : IDisposable
         var host = await _h.AddUserAsync(UserRole.Host);
         _h.CurrentUser.SignIn(host.Id, UserRole.Host);
 
-        var space = await _h.Listings.CreateDraftAsync(Listing("  bengaluru ", 12.97, 77.59));
+        var space = await _h.Listings.CreateDraftAsync(Listing("  gurgaon ", 28.46, 77.03));
 
         // The band lookup is by name, so one spelling is the difference between a price band
         // that applies and a listing that can never be published.
-        space.City.Should().Be("Bengaluru");
+        space.City.Should().Be("Gurgaon");
     }
 
     [Fact]
     public async Task The_city_list_says_which_ones_have_a_price_band()
     {
-        await _h.AddBandAsync("Bengaluru");
+        (await _cities.ListAsync()).Should().Contain(c => c.Name == "Gurgaon" && !c.HasPricing);
 
-        var cities = await _cities.ListAsync();
+        await _h.AddBandAsync("Gurgaon");
 
-        cities.Should().Contain(c => c.Name == "Bengaluru" && c.HasPricing);
-        cities.Should().Contain(c => c.Name == "Pune" && !c.HasPricing);
+        (await _cities.ListAsync()).Should().Contain(c => c.Name == "Gurgaon" && c.HasPricing);
     }
 
     // --- Asking for a city ------------------------------------------------------------------
@@ -115,9 +114,9 @@ public sealed class CitiesAndReferencesTests : IDisposable
         var user = await _h.AddUserAsync(UserRole.Both);
         _h.CurrentUser.SignIn(user.Id);
 
-        var act = () => _cities.RequestAsync("mumbai", null);
+        var act = () => _cities.RequestAsync("gurgaon", null);
 
-        await act.Should().ThrowAsync<DomainException>().WithMessage("*Mumbai is already available*");
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*Gurgaon is already available*");
     }
 
     [Fact]

@@ -127,7 +127,7 @@ public sealed class QueryTests : IDisposable
         await _h.AddBandAsync();
 
         var draft = await _h.Listings.CreateDraftAsync(new CreateListingRequest(
-            "Secret spot", "1 Quiet Ln", "Bengaluru", null, 12.9, 77.5, 60m,
+            "Secret spot", "1 Quiet Ln", "Gurgaon", null, 28.45, 77.02, 60m,
             new[] { VehicleType.FourWheeler },
             new[] { new AvailabilityWindowRequest(DayOfWeek.Tuesday, new TimeOnly(9, 0), new TimeOnly(17, 0)) }));
 

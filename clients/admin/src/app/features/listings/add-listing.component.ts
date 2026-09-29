@@ -8,6 +8,8 @@ import { LocationService } from '../../shared/location.service';
 import { MapPickerComponent } from '../../shared/map-picker.component';
 import { SearchService } from '../../shared/search.service';
 import { AvailabilityWindowRequest, City, DAY_NAMES, ListingPhoto, VehicleType } from '../../core/models';
+import { CitySelectComponent } from '../../shared/city-select.component';
+import { INDIAN_CITIES } from '../../shared/indian-cities';
 
 interface DayRow {
   open: boolean;
@@ -19,7 +21,7 @@ interface DayRow {
 @Component({
   selector: 'app-add-listing',
   standalone: true,
-  imports: [FormsModule, RouterLink, MapPickerComponent],
+  imports: [FormsModule, RouterLink, MapPickerComponent, CitySelectComponent],
   template: `
     <div class="stack">
       <a routerLink="/listings">← Back to listings</a>
@@ -79,12 +81,14 @@ interface DayRow {
             <div>
               <label for="city">City</label>
               <!-- A list, not a box: the price band is looked up by this name, and a renter who
-                   searched Bengaluru must never be shown a driveway whose host typed Gurgaon. -->
-              <select id="city" name="city" [(ngModel)]="form.city" (ngModelChange)="onCityChange()">
-                @for (c of cities(); track c.name) {
-                  <option [value]="c.name">{{ c.name }}, {{ c.state }}</option>
-                }
-              </select>
+                   searched one city must never be shown a driveway whose host typed another. -->
+              <app-city-select
+                inputId="city"
+                name="city"
+                [options]="cityOptions()"
+                [(ngModel)]="form.city"
+                (ngModelChange)="onCityChange()"
+              />
               @if (selectedCity(); as c) {
                 @if (!c.hasPricing) {
                   <small class="muted">
@@ -97,7 +101,13 @@ interface DayRow {
               </button>
               @if (askingForCity()) {
                 <div class="ask stack">
-                  <input name="askCity" [(ngModel)]="askCity" placeholder="Which city?" />
+                  <app-city-select
+                    name="askCity"
+                    [ariaLabel]="'Which city?'"
+                    [placeholder]="'Which city?'"
+                    [options]="requestableCities()"
+                    [(ngModel)]="askCity"
+                  />
                   <input name="askNote" [(ngModel)]="askNote" placeholder="Anything we should know (optional)" />
                   <div class="row">
                     <button type="button" class="sm" [disabled]="busy() || !askCity.trim()" (click)="requestCity()">
@@ -358,6 +368,13 @@ export class AddListingComponent implements OnInit {
   readonly photos = signal<ListingPhoto[]>([]);
   readonly publishFailure = signal<string | null>(null);
 
+  readonly cityOptions = computed(() => this.cities().map((c) => ({ value: c.name, label: `${c.name}, ${c.state}` })));
+  /** Anywhere in India that is not already live; a live city is picked above, not asked for. */
+  readonly requestableCities = computed(() => {
+    const live = new Set(this.cities().map((c) => c.name.toLowerCase()));
+    return INDIAN_CITIES.filter((c) => !live.has(c.toLowerCase()));
+  });
+
   readonly selectedCity = computed(() => this.cities().find((c) => c.name === this.form.city) ?? null);
 
   ngOnInit(): void {
@@ -373,7 +390,7 @@ export class AddListingComponent implements OnInit {
     });
   }
 
-  /** The pin and the clock follow the city, so a host in Pune does not start on Bengaluru. */
+  /** The pin and the clock follow the city, so a host does not start in the wrong one. */
   onCityChange(): void {
     const city = this.selectedCity();
     if (!city) {
@@ -448,9 +465,9 @@ export class AddListingComponent implements OnInit {
   form = {
     title: '',
     addressLine: '',
-    city: 'Bengaluru',
-    latitude: 12.9716,
-    longitude: 77.5946,
+    city: 'Gurgaon',
+    latitude: 28.4595,
+    longitude: 77.0266,
     pricePerHour: 60,
     timeZoneId: 'Asia/Kolkata',
   };

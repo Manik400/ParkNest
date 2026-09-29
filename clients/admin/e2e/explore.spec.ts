@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-import { BENGALURU, apiSignIn, freshPhone, publishedSpace, useSession } from './support';
+import { GURGAON, apiSignIn, freshPhone, publishedSpace, useSession } from './support';
 
 test.describe('Finding parking', () => {
   // The browser's own position, so the search needs no geocoder: the OpenStreetMap lookup the
   // typed-area path uses is a third party, and a test that fails when it is slow proves nothing.
-  test.use({ geolocation: { ...BENGALURU }, permissions: ['geolocation'] });
+  test.use({ geolocation: { ...GURGAON }, permissions: ['geolocation'] });
 
-  test('a search near a Bengaluru position shows a Bengaluru space, tagged with the right city', async ({ page }) => {
+  test('a search near a Gurgaon position shows a Gurgaon space, tagged with the right city', async ({ page }) => {
     const host = await apiSignIn(freshPhone());
     const title = `E2E search target ${Date.now()}`;
     await publishedSpace(host, title);
@@ -22,7 +22,7 @@ test.describe('Finding parking', () => {
 
     const card = page.locator('article.result', { hasText: title });
     await expect(card).toBeVisible();
-    await expect(card).toContainText('Bengaluru');
+    await expect(card).toContainText('Gurgaon');
     await expect(card).toContainText(/away/);
   });
 

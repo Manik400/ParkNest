@@ -154,7 +154,7 @@ public sealed class TestHarness : IDisposable
     }
 
     public async Task<CityPricingConfig> AddBandAsync(
-        string city = "Bengaluru",
+        string city = "Gurgaon",
         VehicleType type = VehicleType.FourWheeler,
         decimal min = 20m,
         decimal max = 120m,
@@ -183,7 +183,7 @@ public sealed class TestHarness : IDisposable
         Guid hostId,
         decimal pricePerHour = 60m,
         VehicleType type = VehicleType.FourWheeler,
-        string city = "Bengaluru",
+        string city = "Gurgaon",
         IReadOnlyList<AvailabilityWindowRequest>? availabilityWindows = null)
     {
         CurrentUser.SignIn(hostId, UserRole.Host);
@@ -197,7 +197,7 @@ public sealed class TestHarness : IDisposable
             .ToArray();
 
         var space = await Listings.CreateDraftAsync(new CreateListingRequest(
-            "Driveway", "12 Main Rd", city, null, 12.97, 77.59, pricePerHour, new[] { type },
+            "Driveway", "12 Main Rd", city, null, 28.46, 77.03, pricePerHour, new[] { type },
             windows, TimeZone));
 
         return await Listings.PublishAsync(space.Id);

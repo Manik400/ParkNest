@@ -1,4 +1,4 @@
-' Runs keep-awake.ps1 with no window, so the every-minute task never flashes a console.
+' Runs keep-awake.ps1 with no window at all (powershell -WindowStyle Hidden still flashes one).
 Option Explicit
 Dim sh, fso, script
 Set sh  = CreateObject("WScript.Shell")

@@ -22,8 +22,8 @@ class ExploreScreen extends StatefulWidget {
 }
 
 class _ExploreScreenState extends State<ExploreScreen> {
-  /// Bengaluru city centre, used only when the device will not say where it is.
-  static const _fallback = LatLng(12.9716, 77.5946);
+  /// Gurgaon city centre, used only when the device will not say where it is.
+  static const _fallback = LatLng(28.4595, 77.0266);
 
   static const _location = LocationService();
 

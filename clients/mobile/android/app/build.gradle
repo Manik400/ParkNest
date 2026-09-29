@@ -35,17 +35,36 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
             // flutter_secure_storage needs 18+ for the keystore path; Flutter's floor is lower.
-        minSdk = 21
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    // Release signing comes from android/key.properties when it exists (CI writes it from the
+    // repository secrets; scripts/setup-android-signing.ps1 creates both). Without it the release
+    // build falls back to the debug key, which installs fine but cannot update an APK signed
+    // with a different key — every CI runner has its own debug key.
+    def keyProperties = new Properties()
+    def keyPropertiesFile = rootProject.file("key.properties")
+    if (keyPropertiesFile.exists()) {
+        keyPropertiesFile.withReader("UTF-8") { keyProperties.load(it) }
+    }
+
+    signingConfigs {
+        if (keyPropertiesFile.exists()) {
+            release {
+                storeFile = file(keyProperties["storeFile"])
+                storePassword = keyProperties["storePassword"]
+                keyAlias = keyProperties["keyAlias"]
+                keyPassword = keyProperties["keyPassword"]
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            signingConfig = keyPropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 }
