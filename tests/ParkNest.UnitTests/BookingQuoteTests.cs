@@ -107,7 +107,7 @@ public sealed class BookingQuoteTests : IDisposable
         await _h.AddBandAsync();
 
         var draft = await _h.Listings.CreateDraftAsync(new CreateListingRequest(
-            "Draft spot", "1 Quiet Ln", "Bengaluru", null, 12.9, 77.5, 60m,
+            "Draft spot", "1 Quiet Ln", "Gurgaon", null, 28.45, 77.02, 60m,
             new[] { VehicleType.FourWheeler },
             new[] { new AvailabilityWindowRequest(DayOfWeek.Tuesday, new TimeOnly(0, 0), new TimeOnly(0, 0)) }));
 

@@ -176,6 +176,33 @@ class Vehicle {
   final String type;
 }
 
+/// A city ParkNest is live in, as `GET /api/cities` returns it.
+class CityOption {
+  const CityOption({
+    required this.name,
+    required this.state,
+    required this.latitude,
+    required this.longitude,
+    required this.hasPricing,
+  });
+
+  factory CityOption.fromJson(Map<String, dynamic> json) => CityOption(
+        name: json['name'] as String,
+        state: json['state'] as String,
+        latitude: (json['latitude'] as num).toDouble(),
+        longitude: (json['longitude'] as num).toDouble(),
+        hasPricing: json['hasPricing'] as bool? ?? false,
+      );
+
+  final String name;
+  final String state;
+  final double latitude;
+  final double longitude;
+  final bool hasPricing;
+
+  String get label => '$name, $state';
+}
+
 class NearbySpace {
   const NearbySpace({
     required this.id,

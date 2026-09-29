@@ -3,6 +3,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { ApiService } from '../../core/api.service';
+import { CitySelectComponent } from '../../shared/city-select.component';
 import {
   CityPricingConfig,
   CityRequestSummary,
@@ -14,7 +15,7 @@ import {
 @Component({
   selector: 'app-pricing',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, FormsModule],
+  imports: [CurrencyPipe, DatePipe, FormsModule, CitySelectComponent],
   template: `
     <div class="stack">
       <div>
@@ -40,7 +41,9 @@ import {
         <form class="grid" (ngSubmit)="save()">
           <div>
             <label for="city">City</label>
-            <input id="city" name="city" [(ngModel)]="form.city" required />
+            <!-- Only a live city: a band for a name the catalogue does not spell the same way
+                 prices nothing. -->
+            <app-city-select inputId="city" name="city" [options]="cityOptions()" [(ngModel)]="form.city" />
           </div>
 
           <div>
@@ -447,9 +450,20 @@ export class PricingComponent implements OnInit {
   }
 
   readonly cityRequests = signal<CityRequestSummary[]>([]);
+  readonly cityOptions = signal<string[]>([]);
 
   private load(): void {
     this.loading.set(true);
+
+    this.api.cities().subscribe({
+      next: (cities) => {
+        this.cityOptions.set(cities.map((c) => c.name));
+        if (!this.form.city && cities[0]) {
+          this.form.city = cities[0].name;
+        }
+      },
+      error: () => this.cityOptions.set([]),
+    });
 
     this.api.cityRequests().subscribe({
       next: (asks) => this.cityRequests.set(asks),

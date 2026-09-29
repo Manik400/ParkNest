@@ -123,7 +123,7 @@ public sealed class BookingAvailabilityTests : IDisposable
         await _h.AddBandAsync();
 
         var draft = await _h.Listings.CreateDraftAsync(new CreateListingRequest(
-            "Driveway", "12 Main Rd", "Bengaluru", null, 12.97, 77.59, 60m,
+            "Driveway", "12 Main Rd", "Gurgaon", null, 28.46, 77.03, 60m,
             new[] { VehicleType.FourWheeler }));
 
         var act = () => _h.Listings.PublishAsync(draft.Id);

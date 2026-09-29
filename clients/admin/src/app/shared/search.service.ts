@@ -21,14 +21,12 @@ export interface GeocodeHit {
 
 const STORAGE_KEY = 'parknest.search';
 
-/** Localities offered before the renter types anything. Enough for the pilot cities. */
+/**
+ * Localities offered before the renter types anything, for the cities ParkNest is live in.
+ * Keep the keys in step with the API's catalogue (Cities.cs); other cities are asked for.
+ */
 export const POPULAR_AREAS: Record<string, string[]> = {
-  Bengaluru: ['Indiranagar', 'Koramangala', 'MG Road', 'Whitefield'],
-  Gurgaon: ['Cyber City', 'Sector 29', 'Golf Course Road', 'MG Road'],
-  Mumbai: ['Bandra', 'Andheri', 'Powai', 'Lower Parel'],
-  Delhi: ['Connaught Place', 'Hauz Khas', 'Saket', 'Dwarka'],
-  Hyderabad: ['Banjara Hills', 'HITEC City', 'Jubilee Hills', 'Gachibowli'],
-  Pune: ['Koregaon Park', 'Hinjewadi', 'Kothrud', 'Viman Nagar'],
+  Gurgaon: ['Cyber City', 'Sector 29', 'Golf Course Road', 'MG Road', 'Sohna Road', 'DLF Phase 3'],
 };
 
 export const CITIES = Object.keys(POPULAR_AREAS);
@@ -89,7 +87,7 @@ export class SearchService {
 
 function load(): SearchState {
   const fallback: SearchState = {
-    city: 'Bengaluru',
+    city: CITIES[0],
     area: '',
     startLocal: toLocalInput(nextQuarterHour(new Date(Date.now() + 10 * 60_000))),
     hours: 3,
@@ -106,6 +104,11 @@ function load(): SearchState {
     // A start time that has already passed would make every quote fail; roll it forward.
     if (new Date(saved.startLocal).getTime() < Date.now()) {
       saved.startLocal = fallback.startLocal;
+    }
+    // A city saved before it left the list would search somewhere ParkNest no longer is.
+    if (!CITIES.includes(saved.city)) {
+      saved.city = fallback.city;
+      saved.area = '';
     }
     return { ...fallback, ...saved };
   } catch {

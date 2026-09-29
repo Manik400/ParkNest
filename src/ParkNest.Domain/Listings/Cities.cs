@@ -30,12 +30,9 @@ public static class Cities
 {
     public static readonly IReadOnlyList<City> Supported = new[]
     {
-        new City("Bengaluru", "Karnataka", 12.9716, 77.5946, 60, "Asia/Kolkata"),
+        // Launching in Gurgaon only. Every other city comes in through a CityRequest, and is added
+        // here when demand and a price band justify opening it.
         new City("Gurgaon", "Haryana", 28.4595, 77.0266, 45, "Asia/Kolkata"),
-        new City("Mumbai", "Maharashtra", 19.0760, 72.8777, 60, "Asia/Kolkata"),
-        new City("Delhi", "Delhi", 28.6139, 77.2090, 60, "Asia/Kolkata"),
-        new City("Hyderabad", "Telangana", 17.3850, 78.4867, 60, "Asia/Kolkata"),
-        new City("Pune", "Maharashtra", 18.5204, 73.8567, 50, "Asia/Kolkata"),
     };
 
     /// <summary>The catalogue entry, matched without regard to case or surrounding space.</summary>

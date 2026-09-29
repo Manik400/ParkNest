@@ -3,23 +3,32 @@ import { expect, test } from '@playwright/test';
 import { apiSignIn, freshPhone, useSession } from './support';
 
 test.describe('Listing a space', () => {
-  test('the city is a list, the pin follows it, and photos come right after saving', async ({ page }) => {
+  test('the city is a searchable list, the pin follows it, and photos come right after saving', async ({ page }) => {
     const host = await apiSignIn(freshPhone());
     await useSession(page, host);
 
     await page.goto('/listings/new');
 
-    // A dropdown, not a text box — the fix for "gurgaon" typed over a Bengaluru pin.
-    const city = page.locator('select#city');
-    await expect(city).toBeVisible();
-    await expect(city.locator('option')).toContainText(['Bengaluru', 'Gurgaon', 'Mumbai']);
+    // A searchable dropdown, not a text box: typing filters, but only a listed city sticks.
+    const city = page.locator('input#city');
+    await expect(city).toHaveValue('Gurgaon, Haryana');
 
-    await city.selectOption('Pune');
+    await city.click();
+    await city.fill('gur');
+    await expect(page.getByRole('option')).toHaveText(['Gurgaon, Haryana']);
+    await city.fill('Nowhereville');
+    await expect(page.getByRole('option')).toHaveCount(0);
+    await city.press('Escape');
+    await expect(city).toHaveValue('Gurgaon, Haryana');
+
+    await city.click();
+    await city.fill('gur');
+    await city.press('Enter');
+    await expect(city).toHaveValue('Gurgaon, Haryana');
     await expect(page.locator('input#tz')).toHaveValue('Asia/Kolkata');
 
-    await city.selectOption('Bengaluru');
     await page.locator('input#title').fill('E2E covered driveway');
-    await page.locator('input#address').fill('12 Main Road, Indiranagar');
+    await page.locator('input#address').fill('12 MG Road, Sector 28');
     await page.locator('input#price').fill('60');
 
     // Draft only: publishing depends on a price band existing for the city.
@@ -41,7 +50,11 @@ test.describe('Listing a space', () => {
 
     await page.goto('/listings/new');
     await page.getByRole('button', { name: /ask for it/i }).click();
-    await page.getByPlaceholder('Which city?').fill('Jaipur');
+    const ask = page.getByRole('combobox', { name: 'Which city?' });
+    await ask.click();
+    await ask.fill('jaip');
+    await page.getByRole('option', { name: 'Jaipur' }).click();
+    await expect(ask).toHaveValue('Jaipur');
     await page.getByRole('button', { name: 'Send the request' }).click();
 
     await expect(page.getByText(/Noted — thanks/)).toBeVisible();

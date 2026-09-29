@@ -145,6 +145,9 @@ class Api {
         NearbySpace.fromJson,
       );
 
+  /// The cities a space can be listed in. Anything else is asked for, not typed.
+  Future<List<CityOption>> cities() async => _list(await client.get('/api/cities'), CityOption.fromJson);
+
   Future<List<ListingSummary>> myListings() async =>
       _list(await client.get('/api/listings/me'), ListingSummary.fromJson);
 

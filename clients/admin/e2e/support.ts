@@ -100,8 +100,8 @@ export async function useSession(page: Page, session: Session): Promise<void> {
   }, session);
 }
 
-/** Bengaluru, near the catalogue centre, so the pin passes the city check. */
-export const BENGALURU = { latitude: 12.9716, longitude: 77.5946 };
+/** Gurgaon, near the catalogue centre, so the pin passes the city check. */
+export const GURGAON = { latitude: 28.4595, longitude: 77.0266 };
 
 const ALL_DAY = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
   dayOfWeek,
@@ -113,13 +113,15 @@ const ALL_DAY = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
 export async function publishedSpace(host: Session, title = `E2E space ${Date.now()}`): Promise<string> {
   const api = await apiAs(host);
 
+  await ensureGurgaonBand();
+
   const created = await api.post('/api/listings', {
     data: {
       title,
-      addressLine: '12 Main Road, Indiranagar',
-      city: 'Bengaluru',
+      addressLine: '12 MG Road, Sector 28',
+      city: 'Gurgaon',
       zone: null,
-      ...BENGALURU,
+      ...GURGAON,
       pricePerHour: 60,
       supportedVehicleTypes: ['FourWheeler'],
       availabilityWindows: ALL_DAY,
@@ -172,4 +174,35 @@ export async function book(renter: Session, spaceId: string, vehicleId: string, 
   const { id } = (await response.json()) as { id: string };
   await api.dispose();
   return id;
+}
+
+/**
+ * Publishing needs a price band for the city. A fresh database has none, so the admin adds a
+ * four-wheeler band for Gurgaon if there is not an active one already.
+ */
+async function ensureGurgaonBand(): Promise<void> {
+  const admin = await apiAs(await apiSignIn(ADMIN_PHONE));
+  const bands = (await (await admin.get('/api/admin/pricing?city=Gurgaon')).json()) as Array<{
+    zone: string | null;
+    vehicleType: string;
+    isActive: boolean;
+  }>;
+
+  if (!bands.some((b) => !b.zone && b.vehicleType === 'FourWheeler' && b.isActive)) {
+    const put = await admin.put('/api/admin/pricing', {
+      data: {
+        city: 'Gurgaon',
+        zone: null,
+        vehicleType: 'FourWheeler',
+        minPricePerHour: 20,
+        maxPricePerHour: 200,
+        overstayMultiplier: 1.5,
+        isActive: true,
+        reason: 'E2E setup',
+      },
+    });
+    expect(put.ok(), await put.text()).toBeTruthy();
+  }
+
+  await admin.dispose();
 }

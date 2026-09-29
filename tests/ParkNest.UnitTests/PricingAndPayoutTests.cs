@@ -28,13 +28,13 @@ public sealed class PricingAndPayoutTests : IDisposable
 
         // Availability is present so publishing fails on the price alone, which is what this covers.
         var draft = await _h.Listings.CreateDraftAsync(new CreateListingRequest(
-            "Driveway", "12 Main Rd", "Bengaluru", null, 12.97, 77.59, 500m,
+            "Driveway", "12 Main Rd", "Gurgaon", null, 28.46, 77.03, 500m,
             new[] { VehicleType.FourWheeler },
             new[] { new AvailabilityWindowRequest(DayOfWeek.Tuesday, new TimeOnly(9, 0), new TimeOnly(17, 0)) }));
 
         var act = () => _h.Listings.PublishAsync(draft.Id);
 
-        await act.Should().ThrowAsync<DomainException>().WithMessage("*outside the Bengaluru band*");
+        await act.Should().ThrowAsync<DomainException>().WithMessage("*outside the Gurgaon band*");
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class PricingAndPayoutTests : IDisposable
 
         _h.Db.CityPricingConfigs.Add(new ParkNest.Domain.Pricing.CityPricingConfig
         {
-            City = "Bengaluru",
+            City = "Gurgaon",
             Zone = "cbd",
             VehicleType = VehicleType.FourWheeler,
             MinPricePerHour = 80m,
@@ -53,7 +53,7 @@ public sealed class PricingAndPayoutTests : IDisposable
         });
         await _h.Db.SaveChangesAsync();
 
-        var band = await _h.PricingService.GetBandAsync("Bengaluru", "cbd", VehicleType.FourWheeler);
+        var band = await _h.PricingService.GetBandAsync("Gurgaon", "cbd", VehicleType.FourWheeler);
 
         band.MaxPricePerHour.Should().Be(200m);
         band.OverstayMultiplier.Should().Be(1.25m);
