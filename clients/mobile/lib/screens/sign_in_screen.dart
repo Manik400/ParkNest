@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../core/api_client.dart';
 import '../core/models.dart';
 import '../widgets/common.dart';
+import '../widgets/feedback_sheet.dart';
 
 /// An email address or phone number, then the code that arrives in the inbox or by SMS. No
 /// password anywhere, which is the reason there is nothing to leak.
@@ -190,6 +191,10 @@ class _SignInScreenState extends State<SignInScreen> {
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                  TextButton(
+                    onPressed: () => showFeedbackSheet(context, page: '/sign-in'),
+                    child: const Text('Trouble signing in? Tell us'),
                   ),
                 ],
               ),

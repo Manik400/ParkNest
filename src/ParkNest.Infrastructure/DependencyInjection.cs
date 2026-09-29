@@ -13,6 +13,7 @@ using ParkNest.Application.Payments;
 using ParkNest.Infrastructure.Auth;
 using ParkNest.Infrastructure.Bookings;
 using ParkNest.Infrastructure.Caching;
+using ParkNest.Infrastructure.Email;
 using ParkNest.Infrastructure.Messaging;
 using ParkNest.Infrastructure.Notifications;
 using ParkNest.Infrastructure.Payments;
@@ -38,6 +39,7 @@ public static class DependencyInjection
         services.Configure<PushOptions>(configuration.GetSection(PushOptions.SectionName));
         services.Configure<KycOptions>(configuration.GetSection(KycOptions.SectionName));
         services.Configure<CacheOptions>(configuration.GetSection(CacheOptions.SectionName));
+        services.Configure<FeedbackOptions>(configuration.GetSection(FeedbackOptions.SectionName));
         services.Configure<AnalyticsOptions>(configuration.GetSection(AnalyticsOptions.SectionName));
         services.Configure<MaintenanceOptions>(configuration.GetSection(MaintenanceOptions.SectionName));
 
@@ -73,6 +75,7 @@ public static class DependencyInjection
         services.AddScoped<ITokenService, JwtTokenService>();
 
         AddOtpSenders(services, configuration, environment);
+        AddEmailSender(services, configuration);
         // The provider switch and its startup validation live in Payments/PaymentRegistration.cs.
         services.AddPaymentGateway(configuration, environment);
         AddPhotoStorage(services, configuration, environment);
@@ -169,6 +172,29 @@ public static class DependencyInjection
         else if (environment.IsDevelopment())
         {
             AddLoggingSender(services, OtpChannel.Email);
+        }
+    }
+
+    /// <summary>
+    /// The sender for everything that is not a sign-in code — today, feedback to the owner. Same
+    /// provider and account as the codes. With no provider it logs instead: unlike a code, a
+    /// feedback email in the console exposes nothing, and it keeps the form working on a laptop.
+    /// </summary>
+    private static void AddEmailSender(IServiceCollection services, IConfiguration configuration)
+    {
+        var email = configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>() ?? new EmailOptions();
+
+        if (email.IsBrevoConfigured)
+        {
+            services.AddHttpClient<IEmailSender, BrevoEmailSender>();
+        }
+        else if (email.IsSmtpConfigured)
+        {
+            services.AddScoped<IEmailSender, SmtpEmailSender>();
+        }
+        else
+        {
+            services.AddScoped<IEmailSender, LoggingEmailSender>();
         }
     }
 

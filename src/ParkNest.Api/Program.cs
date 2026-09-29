@@ -180,6 +180,18 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0
         }));
 
+    // Feedback is anonymous and every accepted call is an email in the owner's inbox, drawn from
+    // the same 300-a-day Brevo allowance as sign-in codes. A tester with a lot to say sends a
+    // handful an hour; a script gets five.
+    options.AddPolicy(RateLimitPolicies.Feedback, http => RateLimitPartition.GetFixedWindowLimiter(
+        ClientKey(http),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = rateLimits.FeedbackPerHour,
+            Window = TimeSpan.FromHours(1),
+            QueueLimit = 0
+        }));
+
     static string ClientKey(HttpContext http) =>
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 });

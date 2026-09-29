@@ -12,6 +12,7 @@ public static class RateLimitPolicies
     public const string PaymentWebhook = "payment-webhook";
     public const string CheckoutPage = "checkout-page";
     public const string AnalyticsCollect = "analytics-collect";
+    public const string Feedback = "feedback";
 }
 
 /// <summary>
@@ -24,4 +25,5 @@ public sealed class RateLimitOptions
 
     public int OtpRequestsPer15Minutes { get; set; } = 10;
     public int OtpVerifiesPer15Minutes { get; set; } = 30;
+    public int FeedbackPerHour { get; set; } = 5;
 }

@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { FeedbackService } from '../../shared/feedback.service';
 import { DataResetInfo, DataResetResult, PlatformRevenue, Profile } from '../../core/models';
 
 /**
@@ -33,6 +34,18 @@ import { DataResetInfo, DataResetResult, PlatformRevenue, Profile } from '../../
       @if (loading()) {
         <p class="muted">Loading…</p>
       }
+
+      <!-- On a phone the header menu is a long reach; this is where people look for "help". -->
+      <section class="card stack">
+        <h2>Help us improve ParkNest</h2>
+        <p class="muted small">
+          ParkNest is in public beta. Found something broken, or have an idea? It goes straight to the team.
+        </p>
+        <div class="row">
+          <button type="button" class="primary sm" (click)="feedback.open('Problem')">Report a problem</button>
+          <button type="button" class="sm" (click)="feedback.open('Idea')">Send feedback</button>
+        </div>
+      </section>
       @if (profile(); as me) {
         <section class="card stack">
           <h2>Sign-in</h2>
@@ -198,6 +211,7 @@ import { DataResetInfo, DataResetResult, PlatformRevenue, Profile } from '../../
 export class ProfileComponent implements OnInit {
   private readonly api = inject(ApiService);
   readonly auth = inject(AuthService);
+  readonly feedback = inject(FeedbackService);
 
   readonly revenue = signal<PlatformRevenue | null>(null);
   readonly resetInfo = signal<DataResetInfo | null>(null);
