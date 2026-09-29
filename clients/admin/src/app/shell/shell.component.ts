@@ -2,6 +2,7 @@ import { Component, ElementRef, HostListener, inject, signal } from '@angular/co
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AuthService } from '../core/auth.service';
+import { FeedbackService } from '../shared/feedback.service';
 
 /**
  * Top bar on desktop, bottom tab bar on a phone. The renter's three actions (explore, bookings,
@@ -26,6 +27,10 @@ import { AuthService } from '../core/auth.service';
       </nav>
 
       <div class="right">
+        <!-- Always in reach while the app is in public beta: the fastest way to hear what breaks. -->
+        <button type="button" class="beta" (click)="feedback.open()" title="Report a problem or send feedback">
+          <span class="beta-tag">Beta</span><span class="beta-label">Feedback</span>
+        </button>
         <a routerLink="/listings/new" class="host-link">List your space</a>
 
         <div class="menu-anchor">
@@ -57,6 +62,9 @@ import { AuthService } from '../core/auth.service';
                 <a routerLink="/payouts" role="menuitem">Payouts</a>
                 <a routerLink="/pricing" role="menuitem">Pricing bands</a>
               }
+              <div class="sep"></div>
+              <button type="button" class="menu-btn" role="menuitem" (click)="feedback.open('Problem')">Report a problem</button>
+              <button type="button" class="menu-btn" role="menuitem" (click)="feedback.open('Idea')">Send feedback</button>
               <div class="sep"></div>
               <button type="button" class="menu-btn" role="menuitem" (click)="auth.logout()">Sign out</button>
             </div>
@@ -156,6 +164,28 @@ import { AuthService } from '../core/auth.service';
         display: flex;
         align-items: center;
         gap: 14px;
+      }
+
+      .beta {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 12px 5px 5px;
+        border: 1px solid var(--hairline);
+        border-radius: 999px;
+        background: var(--canvas);
+        color: var(--ink-soft);
+        font: 600 13px/1 var(--font-body);
+      }
+
+      .beta-tag {
+        padding: 4px 7px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
       }
 
       .host-link {
@@ -321,6 +351,7 @@ import { AuthService } from '../core/auth.service';
 })
 export class ShellComponent {
   readonly auth = inject(AuthService);
+  readonly feedback = inject(FeedbackService);
   private readonly host = inject(ElementRef<HTMLElement>);
 
   readonly menuOpen = signal(false);

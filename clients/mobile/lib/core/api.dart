@@ -351,6 +351,25 @@ class Api {
   Future<void> markAllNotificationsRead() =>
       client.post('/api/notifications/me/read-all', body: {});
 
+  // --- Feedback -----------------------------------------------------------
+
+  /// Mails a problem report or feedback to the ParkNest team. Works signed in or not; signed in,
+  /// the account's email is used when [email] is null.
+  Future<void> sendFeedback({
+    required String kind,
+    required String message,
+    String? email,
+    required String page,
+    required String client,
+  }) =>
+      this.client.post('/api/feedback', body: {
+        'kind': kind,
+        'message': message,
+        'email': email,
+        'page': page,
+        'client': client,
+      });
+
   // --- Devices ------------------------------------------------------------
 
   /// Points this install at the signed-in account. Called on every launch, because the platform

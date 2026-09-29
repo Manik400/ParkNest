@@ -58,6 +58,10 @@ services:
         sync: false # Brevo → SMTP & API → API Keys → Generate (starts with xkeysib-)
       - key: Email__FromAddress
         sync: false # an address verified in Brevo → Senders, e.g. your Gmail
+      # In-app "Report a problem / Send feedback" is mailed here, through the same Brevo account.
+      # Reply-To is the tester's own address, so answering is one click.
+      - key: Feedback__ToAddress
+        value: manikgoyal400@gmail.com
       # No SMS provider: outside Development the dev "Log" sender is never registered, so phone
       # sign-in is switched off and email is the only channel. Sms__Provider=Msg91 turns it on.
 

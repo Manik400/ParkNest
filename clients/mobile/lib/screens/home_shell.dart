@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/api_client.dart';
 import '../widgets/common.dart';
+import '../widgets/feedback_sheet.dart';
 
 /// The signed-in frame: bottom navigation, and the overflow items that do not deserve a tab.
 ///
@@ -60,6 +61,10 @@ class HomeMenuButton extends StatelessWidget {
             context.push('/vehicles');
           case 'disputes':
             context.push('/disputes');
+          case 'problem':
+            await showFeedbackSheet(context, kind: 'Problem', page: GoRouterState.of(context).uri.toString());
+          case 'feedback':
+            await showFeedbackSheet(context, kind: 'Idea', page: GoRouterState.of(context).uri.toString());
           case 'sign-out':
             // Ends the session on the server, not only on the handset. The router notices the
             // cleared session and moves to sign-in by itself.
@@ -70,6 +75,9 @@ class HomeMenuButton extends StatelessWidget {
         PopupMenuItem(value: 'profile', child: Text('Profile')),
         PopupMenuItem(value: 'vehicles', child: Text('My vehicles')),
         PopupMenuItem(value: 'disputes', child: Text('My disputes')),
+        PopupMenuDivider(),
+        PopupMenuItem(value: 'problem', child: Text('Report a problem')),
+        PopupMenuItem(value: 'feedback', child: Text('Send feedback')),
         PopupMenuDivider(),
         PopupMenuItem(value: 'sign-out', child: Text('Sign out')),
       ],

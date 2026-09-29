@@ -387,6 +387,17 @@ export class ApiService {
     return this.http.post<void>(`${this.base}/api/cities/requests`, { city, note });
   }
 
+  /** Mails a problem report or feedback to the ParkNest team. Works signed in or not. */
+  sendFeedback(body: {
+    kind: 'Problem' | 'Idea' | 'Other';
+    message: string;
+    email: string | null;
+    page: string;
+    client: string;
+  }): Observable<void> {
+    return this.http.post<void>(`${this.base}/api/feedback`, body);
+  }
+
   /** The asks, most-wanted first. Admin only. */
   cityRequests(): Observable<CityRequestSummary[]> {
     return this.http.get<CityRequestSummary[]>(`${this.base}/api/cities/requests`);
