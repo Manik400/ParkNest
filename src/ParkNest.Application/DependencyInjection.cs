@@ -41,6 +41,7 @@ public static class DependencyInjection
         services.AddScoped<Analytics.IAnalyticsRetention, Analytics.AnalyticsRetention>();
         services.AddScoped<IPlatformRevenueQueries, PlatformRevenueQueries>();
         services.AddScoped<Admin.IDataResetService, Admin.DataResetService>();
+        services.AddScoped<Support.IFeedbackService, Support.FeedbackService>();
 
         // One class handling several events is registered once per event type. Registered as the
         // interface rather than the class so the bus can resolve every subscriber to a given fact

@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { AuthService } from '../../core/auth.service';
+import { FeedbackService } from '../../shared/feedback.service';
 
 @Component({
   selector: 'app-login',
@@ -84,6 +85,10 @@ import { AuthService } from '../../core/auth.service';
         }
 
         <p class="fine">By continuing you agree to park where you booked and pay for the time you use.</p>
+        <p class="fine">
+          ParkNest is in public beta.
+          <button type="button" class="link" (click)="feedback.open('Problem')">Trouble signing in? Tell us</button>
+        </p>
       </form>
     </div>
   `,
@@ -171,6 +176,16 @@ import { AuthService } from '../../core/auth.service';
         text-align: center;
       }
 
+      .link {
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--accent);
+        font: inherit;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+
       .fine {
         margin: 0;
         font-size: 12px;
@@ -206,6 +221,7 @@ export class LoginComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  readonly feedback = inject(FeedbackService);
 
   /** An email address or a phone number; the API tells them apart. */
   destination = '';
