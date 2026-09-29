@@ -11,4 +11,17 @@ public static class RateLimitPolicies
     public const string OtpVerify = "otp-verify";
     public const string PaymentWebhook = "payment-webhook";
     public const string CheckoutPage = "checkout-page";
+    public const string AnalyticsCollect = "analytics-collect";
+}
+
+/// <summary>
+/// Per-caller ceilings for the anonymous endpoints. Production values by default; Development
+/// raises them so an end-to-end run, which signs in an account per test, is not throttled.
+/// </summary>
+public sealed class RateLimitOptions
+{
+    public const string SectionName = "RateLimits";
+
+    public int OtpRequestsPer15Minutes { get; set; } = 10;
+    public int OtpVerifiesPer15Minutes { get; set; } = 30;
 }

@@ -16,6 +16,7 @@ public interface ILedgerService
         IReadOnlyList<LedgerPosting> postings,
         Guid? bookingId = null,
         string? description = null,
+        Guid? revertsTransactionId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Recomputes a wallet's buckets from its entries. Used by reconciliation jobs and tests.</summary>

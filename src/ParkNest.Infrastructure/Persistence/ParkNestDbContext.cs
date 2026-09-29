@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ParkNest.Application.Abstractions;
+using ParkNest.Domain.Analytics;
 using ParkNest.Domain.Bookings;
 using ParkNest.Domain.Common;
 using ParkNest.Domain.Disputes;
@@ -44,6 +45,8 @@ public class ParkNestDbContext : DbContext, IParkNestDbContext
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
     public DbSet<KycSubmission> KycSubmissions => Set<KycSubmission>();
+    public DbSet<AnalyticsEvent> AnalyticsEvents => Set<AnalyticsEvent>();
+    public DbSet<CityRequest> CityRequests => Set<CityRequest>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         Database.BeginTransactionAsync(cancellationToken);

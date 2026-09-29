@@ -51,6 +51,10 @@ export interface Reconciliation {
 
 export interface LedgerEntrySummary {
   transactionId: string;
+  /** The id a person quotes: TXN-… Printed on receipts, shown on every wallet line. */
+  reference: string;
+  /** Set when this transaction undoes an earlier one — the hold a release returns, the settlement a dispute adjusts. */
+  revertsReference: string | null;
   transactionType: string;
   account: string;
   direction: 'Debit' | 'Credit';
@@ -107,7 +111,8 @@ export interface ListingSummary {
 }
 
 export interface AvailabilityWindowView {
-  dayOfWeek: number;
+  /** The day's name ("Monday"): enums cross the wire as names. */
+  dayOfWeek: number | string;
   startTime: string;
   endTime: string;
 }
@@ -414,3 +419,110 @@ export interface Reputation {
   recent: Rating[];
 }
 
+
+// --- Analytics (owner only) -------------------------------------------------
+
+export interface AnalyticsTotals {
+  /** Sessions started: someone opened the site. The hit counter. */
+  visits: number;
+  pageViews: number;
+  /** Distinct browsers. Always at or below `visits`, and the honest headline figure. */
+  visitors: number;
+  searches: number;
+  signIns: number;
+  signUps: number;
+  bookings: number;
+  bookingValue: number;
+  paymentAttempts: number;
+  paymentsSucceeded: number;
+  paymentsFailed: number;
+  paymentValue: number;
+}
+
+export interface AnalyticsDay {
+  date: string;
+  visits: number;
+  pageViews: number;
+  visitors: number;
+  bookings: number;
+  paymentAttempts: number;
+  paymentsSucceeded: number;
+}
+
+export interface AnalyticsPage {
+  path: string;
+  views: number;
+}
+
+export interface AnalyticsCounter {
+  name: string;
+  count: number;
+  lastSeen: string;
+}
+
+export interface AnalyticsRecentEvent {
+  name: string;
+  occurredAt: string;
+  source: string;
+  path: string | null;
+  amount: number | null;
+  detail: string | null;
+  signedIn: boolean;
+}
+
+export interface AnalyticsSummary {
+  from: string;
+  to: string;
+  days: number;
+  totals: AnalyticsTotals;
+  /** One entry per day in the window, quiet days included, oldest first. */
+  daily: AnalyticsDay[];
+  topPages: AnalyticsPage[];
+  /** Every event name that fired in the window, busiest first. */
+  counters: AnalyticsCounter[];
+  recent: AnalyticsRecentEvent[];
+  allTimeVisits: number;
+  allTimePageViews: number;
+  allTimeVisitors: number;
+  allTimeEvents: number;
+}
+
+// --- Cities ------------------------------------------------------------------
+
+export interface City {
+  name: string;
+  state: string;
+  latitude: number;
+  longitude: number;
+  timeZoneId: string;
+  /** An active price band exists, so a listing here can actually be published. */
+  hasPricing: boolean;
+}
+
+export interface CityRequestSummary {
+  city: string;
+  count: number;
+  firstAskedAt: string;
+  lastAskedAt: string;
+  notes: string[];
+}
+
+// --- Platform (admin) --------------------------------------------------------
+
+export interface PlatformRevenue {
+  total: number;
+  thisMonth: number;
+  earned: number;
+  givenBack: number;
+  settlements: number;
+}
+
+export interface DataResetInfo {
+  allowed: boolean;
+  confirmationPhrase: string;
+}
+
+export interface DataResetResult {
+  rowsRemoved: Record<string, number>;
+  kept: string[];
+}

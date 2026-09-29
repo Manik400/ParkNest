@@ -412,6 +412,8 @@ button.block {
 
 .chip.selected:hover:not(:disabled) {
   background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
 }
 
 .badge {
@@ -660,4 +662,22 @@ th.numeric {
   background: var(--accent);
   color: #fff;
   box-shadow: 0 2px 10px rgb(200 98 47 / 30%);
+}
+
+/* Print: the receipt page is the PDF. The chrome goes, the page is the paper. */
+@media print {
+  .no-print,
+  app-shell > .top,
+  app-shell > .tabs {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  app-shell > main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
 }

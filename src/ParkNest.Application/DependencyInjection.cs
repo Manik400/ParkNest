@@ -17,6 +17,7 @@ public static class DependencyInjection
         services.AddScoped<IPricingService, PricingService>();
         services.AddScoped<IPricingBandAdminService, PricingBandAdminService>();
         services.AddScoped<IListingService, ListingService>();
+        services.AddScoped<ICityService, CityService>();
         services.AddScoped<IListingPhotoService, ListingPhotoService>();
         services.AddScoped<IBookingService, BookingService>();
         services.AddScoped<IOverstayMeter, OverstayMeter>();
@@ -34,6 +35,12 @@ public static class DependencyInjection
         services.AddScoped<Notifications.IDeviceTokenService, Notifications.DeviceTokenService>();
         services.AddScoped<Users.IKycService, Users.KycService>();
         services.AddScoped<Users.IProfileService, Users.ProfileService>();
+        services.AddScoped<Analytics.IAnalyticsRecorder, Analytics.AnalyticsRecorder>();
+        services.AddScoped<Analytics.IAnalyticsCollector, Analytics.AnalyticsCollector>();
+        services.AddScoped<Analytics.IAnalyticsQueries, Analytics.AnalyticsQueries>();
+        services.AddScoped<Analytics.IAnalyticsRetention, Analytics.AnalyticsRetention>();
+        services.AddScoped<IPlatformRevenueQueries, PlatformRevenueQueries>();
+        services.AddScoped<Admin.IDataResetService, Admin.DataResetService>();
 
         // One class handling several events is registered once per event type. Registered as the
         // interface rather than the class so the bus can resolve every subscriber to a given fact
@@ -47,6 +54,15 @@ public static class DependencyInjection
         services.AddScoped<IEventHandler<NextSlotBlocked>>(sp => sp.GetRequiredService<Notifications.BookingNotificationHandlers>());
         services.AddScoped<IEventHandler<DisputeResolved>>(sp => sp.GetRequiredService<Notifications.BookingNotificationHandlers>());
         services.AddScoped<IEventHandler<KycReviewed>>(sp => sp.GetRequiredService<Notifications.BookingNotificationHandlers>());
+
+        // The site counter listens to the same facts. A third subscriber rather than a line
+        // inside the notification handler, so switching analytics off never touches the
+        // messages a renter actually receives.
+        services.AddScoped<Analytics.AnalyticsEventHandlers>();
+        services.AddScoped<IEventHandler<BookingCreated>>(sp => sp.GetRequiredService<Analytics.AnalyticsEventHandlers>());
+        services.AddScoped<IEventHandler<BookingCancelled>>(sp => sp.GetRequiredService<Analytics.AnalyticsEventHandlers>());
+        services.AddScoped<IEventHandler<SessionEnded>>(sp => sp.GetRequiredService<Analytics.AnalyticsEventHandlers>());
+        services.AddScoped<IEventHandler<DisputeRaised>>(sp => sp.GetRequiredService<Analytics.AnalyticsEventHandlers>());
 
         return services;
     }

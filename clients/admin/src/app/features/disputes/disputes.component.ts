@@ -1,5 +1,5 @@
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -102,8 +102,15 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
       </section>
 
       @if (selected(); as dispute) {
-        <section class="card stack">
-          <h2>Decide dispute</h2>
+        <!-- A dialog, because "Decide" on a row and a form that appeared somewhere below the
+             table read as the button doing nothing. -->
+        <div class="modal-backdrop" (click)="close()"></div>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="decide-title">
+        <section class="card stack modal-card">
+          <div class="modal-head">
+            <h2 id="decide-title">Decide dispute</h2>
+            <button type="button" class="ghost sm" aria-label="Close" (click)="close()" [disabled]="busy()">✕</button>
+          </div>
 
           <dl class="facts">
             <div>
@@ -216,9 +223,10 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
                 Mark under review
               </button>
             }
-            <button type="button" (click)="selected.set(null)" [disabled]="busy()">Cancel</button>
+            <button type="button" (click)="close()" [disabled]="busy()">Cancel</button>
           </div>
         </section>
+        </div>
       }
     </div>
   `,
@@ -293,6 +301,48 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
         gap: var(--space-2);
         flex-wrap: wrap;
       }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        background: rgb(28 26 23 / 45%);
+      }
+
+      .modal {
+        position: fixed;
+        inset: 0;
+        z-index: 41;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: clamp(12px, 4vh, 48px) 16px;
+        overflow-y: auto;
+        pointer-events: none;
+      }
+
+      .modal-card {
+        pointer-events: auto;
+        width: min(760px, 100%);
+        box-shadow: var(--shadow-lg);
+      }
+
+      .modal-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .modal-head h2 {
+        margin: 0;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--space-3);
+      }
     `,
   ],
 })
@@ -350,6 +400,17 @@ export class DisputesComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+  }
+
+  close(): void {
+    if (!this.busy()) {
+      this.selected.set(null);
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  closeOnEscape(): void {
+    this.close();
   }
 
   isUndecided(dispute: Dispute): boolean {

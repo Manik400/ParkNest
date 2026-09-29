@@ -37,6 +37,7 @@ public sealed class LedgerService : ILedgerService
         IReadOnlyList<LedgerPosting> postings,
         Guid? bookingId = null,
         string? description = null,
+        Guid? revertsTransactionId = null,
         CancellationToken cancellationToken = default)
     {
         // Whoever owns the transaction owns the retry.
@@ -49,7 +50,7 @@ public sealed class LedgerService : ILedgerService
         if (_db.HasActiveTransaction)
         {
             return await TryPostAsync(
-                type, idempotencyKey, postings, bookingId, description, new List<object>(), cancellationToken);
+                type, idempotencyKey, postings, bookingId, description, revertsTransactionId, new List<object>(), cancellationToken);
         }
 
         for (var attempt = 1; ; attempt++)
@@ -61,7 +62,7 @@ public sealed class LedgerService : ILedgerService
             try
             {
                 return await TryPostAsync(
-                    type, idempotencyKey, postings, bookingId, description, tracked, cancellationToken);
+                    type, idempotencyKey, postings, bookingId, description, revertsTransactionId, tracked, cancellationToken);
             }
             catch (DbUpdateException ex) when (ex is not DbUpdateConcurrencyException)
             {
@@ -116,6 +117,7 @@ public sealed class LedgerService : ILedgerService
         IReadOnlyList<LedgerPosting> postings,
         Guid? bookingId,
         string? description,
+        Guid? revertsTransactionId,
         List<object> tracked,
         CancellationToken cancellationToken)
     {
@@ -157,10 +159,12 @@ public sealed class LedgerService : ILedgerService
         var now = _clock.UtcNow;
         var transaction = new LedgerTransaction
         {
+            Reference = LedgerReference.New(),
             Type = type,
             IdempotencyKey = idempotencyKey,
             BookingId = bookingId,
             Description = description,
+            RevertsTransactionId = revertsTransactionId,
             CreatedAt = now
         };
 

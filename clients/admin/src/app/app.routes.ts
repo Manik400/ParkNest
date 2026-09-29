@@ -58,6 +58,12 @@ export const routes: Routes = [
         title: 'Bookings · ParkNest',
       },
       {
+        path: 'bookings/:bookingId/receipt',
+        loadComponent: () =>
+          import('./features/bookings/receipt.component').then((m) => m.ReceiptComponent),
+        title: 'Receipt · ParkNest',
+      },
+      {
         path: 'bookings/:bookingId',
         loadComponent: () =>
           import('./features/bookings/booking-detail.component').then(
@@ -95,6 +101,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/payouts/payouts.component').then((m) => m.PayoutsComponent),
         title: 'Payouts · ParkNest',
+      },
+      {
+        path: 'analytics',
+        canActivate: [adminGuard],
+        loadComponent: () =>
+          import('./features/analytics/analytics.component').then((m) => m.AnalyticsComponent),
+        title: 'Site activity · ParkNest',
       },
       {
         path: 'pricing',

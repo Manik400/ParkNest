@@ -47,3 +47,8 @@ clients/mobile/ios/Runner/GoogleService-Info.plist
 # OS
 .DS_Store
 Thumbs.db
+
+# Playwright output (clients/admin)
+clients/admin/test-results/
+clients/admin/e2e-report/
+clients/admin/playwright-report/

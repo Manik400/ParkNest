@@ -23,7 +23,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
 
     <application
-        android:label="parknest_mobile"
+        android:label="ParkNest"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

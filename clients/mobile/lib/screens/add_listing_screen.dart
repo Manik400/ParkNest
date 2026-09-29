@@ -5,6 +5,7 @@ import '../core/api_client.dart';
 import '../core/formatting.dart';
 import '../core/location.dart';
 import '../core/models.dart';
+import '../widgets/city_picker.dart';
 import '../widgets/common.dart';
 import '../widgets/space_map.dart';
 
@@ -22,13 +23,16 @@ class AddListingScreen extends StatefulWidget {
 }
 
 class _AddListingScreenState extends State<AddListingScreen> {
-  static const _fallback = LatLng(12.9716, 77.5946);
+  /// Gurgaon, the city ParkNest is live in, for when the device will not say where it is.
+  static const _fallback = LatLng(28.4595, 77.0266);
   static const _location = LocationService();
 
   final _form = GlobalKey<FormState>();
   final _title = TextEditingController();
   final _address = TextEditingController();
-  final _city = TextEditingController(text: 'Bengaluru');
+  List<CityOption> _cities = const [];
+  CityOption? _city;
+  bool _loadingCities = true;
   final _price = TextEditingController(text: '60');
 
   LatLng _point = _fallback;
@@ -45,13 +49,31 @@ class _AddListingScreenState extends State<AddListingScreen> {
   void initState() {
     super.initState();
     _locate();
+    // After the first frame: the API comes from an inherited widget, which initState cannot read.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCities());
+  }
+
+  Future<void> _loadCities() async {
+    final api = Services.of(context);
+    try {
+      final cities = await api.cities();
+      if (!mounted) return;
+      setState(() {
+        _cities = cities;
+        _city ??= cities.isEmpty ? null : cities.first;
+        _loadingCities = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loadingCities = false);
+      showError(context, error);
+    }
   }
 
   @override
   void dispose() {
     _title.dispose();
     _address.dispose();
-    _city.dispose();
     _price.dispose();
     super.dispose();
   }
@@ -105,7 +127,7 @@ class _AddListingScreenState extends State<AddListingScreen> {
       final spaceId = await api.createListing(CreateListingRequest(
         title: _title.text.trim(),
         addressLine: _address.text.trim(),
-        city: _city.text.trim(),
+        city: _city!.name,
         latitude: _point.latitude,
         longitude: _point.longitude,
         pricePerHour: double.parse(_price.text.trim()),
@@ -214,14 +236,13 @@ class _AddListingScreenState extends State<AddListingScreen> {
                         (value ?? '').trim().isEmpty ? 'An address is required.' : null,
                   ),
                   const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _city,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(labelText: 'City'),
-                    // The city selects the price band. Getting it wrong is not a typo, it is a
-                    // listing that cannot be published at all.
-                    validator: (value) =>
-                        (value ?? '').trim().isEmpty ? 'The city decides which price band applies.' : null,
+                  // Picked from the live list, never typed: the city selects the price band, and a
+                  // misspelt one is not a typo but a listing that can never be published.
+                  CityPickerField(
+                    cities: _cities,
+                    value: _city,
+                    loading: _loadingCities,
+                    onChanged: (city) => setState(() => _city = city),
                   ),
                 ],
               ),

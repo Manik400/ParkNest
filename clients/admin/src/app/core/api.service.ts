@@ -4,7 +4,13 @@ import { Observable } from 'rxjs';
 
 import { environment } from '../../environments/environment';
 import {
+  AnalyticsSummary,
   BookingDetail,
+  City,
+  CityRequestSummary,
+  DataResetInfo,
+  DataResetResult,
+  PlatformRevenue,
   BookingQuote,
   BookingStatus,
   BookingSummary,
@@ -368,5 +374,44 @@ export class ApiService {
   /** Records a rejected transfer. The credits go back to the host via a compensating Refund. */
   failPayout(payoutId: string, reason: string): Observable<Payout> {
     return this.http.post<Payout>(`${this.base}/api/admin/payouts/${payoutId}/fail`, { reason });
+  }
+
+  // --- Cities ---------------------------------------------------------------
+
+  cities(): Observable<City[]> {
+    return this.http.get<City[]>(`${this.base}/api/cities`);
+  }
+
+  /** Asks for a city the platform is not in. 204 on success. */
+  requestCity(city: string, note: string | null): Observable<void> {
+    return this.http.post<void>(`${this.base}/api/cities/requests`, { city, note });
+  }
+
+  /** The asks, most-wanted first. Admin only. */
+  cityRequests(): Observable<CityRequestSummary[]> {
+    return this.http.get<CityRequestSummary[]>(`${this.base}/api/cities/requests`);
+  }
+
+  // --- Admin: the platform's own figures and the reset lever ------------------
+
+  platformRevenue(): Observable<PlatformRevenue> {
+    return this.http.get<PlatformRevenue>(`${this.base}/api/admin/platform/revenue`);
+  }
+
+  resetInfo(): Observable<DataResetInfo> {
+    return this.http.get<DataResetInfo>(`${this.base}/api/admin/platform/reset`);
+  }
+
+  resetData(confirmation: string): Observable<DataResetResult> {
+    return this.http.post<DataResetResult>(`${this.base}/api/admin/platform/reset`, { confirmation });
+  }
+
+  // --- Owner: site analytics ------------------------------------------------
+
+  /** The whole dashboard in one call. 403 for an admin the allow-list does not name. */
+  analyticsSummary(days: number): Observable<AnalyticsSummary> {
+    return this.http.get<AnalyticsSummary>(`${this.base}/api/admin/analytics/summary`, {
+      params: new HttpParams().set('days', days),
+    });
   }
 }

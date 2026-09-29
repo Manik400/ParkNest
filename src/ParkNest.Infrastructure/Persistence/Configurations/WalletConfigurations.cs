@@ -36,6 +36,13 @@ public sealed class LedgerTransactionConfiguration : IEntityTypeConfiguration<Le
         builder.HasIndex(t => t.BookingId);
         builder.HasIndex(t => t.CreatedAt);
 
+        // Quoted by people, so it has to be unique the way the id is; it is never what anything
+        // joins on, which is why it is a second column rather than a replacement key.
+        builder.Property(t => t.Reference).HasMaxLength(LedgerReference.Length).IsRequired();
+        builder.HasIndex(t => t.Reference).IsUnique();
+
+        builder.HasIndex(t => t.RevertsTransactionId);
+
         builder.Property(t => t.Description).HasMaxLength(500);
 
         builder.HasMany(t => t.Entries)

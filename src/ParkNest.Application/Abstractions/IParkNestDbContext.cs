@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using ParkNest.Domain.Analytics;
 using ParkNest.Domain.Bookings;
 using ParkNest.Domain.Disputes;
 using ParkNest.Domain.Listings;
@@ -44,6 +45,10 @@ public interface IParkNestDbContext
     DbSet<DeviceToken> DeviceTokens { get; }
 
     DbSet<KycSubmission> KycSubmissions { get; }
+
+    DbSet<AnalyticsEvent> AnalyticsEvents { get; }
+
+    DbSet<CityRequest> CityRequests { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

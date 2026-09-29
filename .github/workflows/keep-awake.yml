@@ -1,24 +1,65 @@
-# Pings the hosted API every 5 minutes so Render's free instance never reaches its 15-minute
-# idle sleep. Runs on GitHub's servers, so it keeps working when your own PC is off — unlike
-# scripts/keep-awake.ps1, which only runs while you are logged in.
+# Keeps the Render free instance awake around the clock by pinging /health every few seconds.
 #
-# GitHub schedules can slip by several minutes under load; 5 minutes leaves room for that.
-# The job is tiny (one curl), so it stays well inside the free Actions allowance.
+# GitHub's cron is best-effort: a '*/5' schedule actually fired every 2-5 hours here, which let
+# Render's 15-minute idle sleep win. So instead of one ping per scheduled run, each run is a long
+# loop (just under GitHub's 6-hour job limit) that pings continuously, and when it ends it starts
+# the next run itself. The schedule is only a safety net that restarts the chain if a run is ever
+# lost; the concurrency group queues it behind the live loop instead of running two at once.
+#
+# The repository is public, so Actions minutes are free. Scheduled workflows only run from the
+# default branch (main), and GitHub pauses them after 60 days without a commit to the repository;
+# the self-restart keeps the loop going regardless, and Actions → Keep awake → Run workflow
+# starts it by hand.
 name: Keep awake
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/20 * * * *'
   workflow_dispatch:
+
+concurrency:
+  group: keep-awake
+  cancel-in-progress: false
+
+permissions:
+  actions: write # to start the next run
+  contents: read
 
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 355
+    env:
+      URL: https://parknest.onrender.com/health
+      INTERVAL_SECONDS: 15
+      # 5h40m, leaving room under the 355-minute timeout for the hand-over step.
+      RUN_SECONDS: 20400
     steps:
-      - name: Ping /health
+      - name: Ping /health every ${{ env.INTERVAL_SECONDS }}s
         run: |
-          # A sleeping instance takes 30-60 s to answer, hence the long max-time.
-          curl --fail --silent --show-error --max-time 120 \
-            -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' \
-            https://parknest.onrender.com/health
+          end=$((SECONDS + RUN_SECONDS))
+          ok=0; failed=0
+          while [ "$SECONDS" -lt "$end" ]; do
+            # A sleeping instance takes 30-60 s to answer, hence the long max-time.
+            code=$(curl --silent --output /dev/null --max-time 90 --write-out '%{http_code}' "$URL" || true)
+            if [ "$code" = "200" ]; then
+              ok=$((ok + 1))
+            else
+              failed=$((failed + 1))
+              echo "$(date -u '+%F %T') HTTP ${code:-000}"
+            fi
+            # One summary line a minute or so, rather than 1,300 lines of "200".
+            if [ $(( (ok + failed) % 4 )) -eq 0 ]; then
+              echo "$(date -u '+%F %T') ok=$ok failed=$failed"
+            fi
+            sleep "$INTERVAL_SECONDS"
+          done
+          echo "Done: ok=$ok failed=$failed"
+
+      - name: Start the next run
+        # Not after a manual cancel: cancelling a run is how you stop the loop.
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run keep-awake.yml --ref "${{ github.ref_name }}"

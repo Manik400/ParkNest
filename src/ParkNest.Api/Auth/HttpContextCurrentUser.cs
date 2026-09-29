@@ -31,6 +31,20 @@ public sealed class HttpContextCurrentUser : ICurrentUser
         }
     }
 
+    /// <summary>
+    /// The "email" claim the token service puts on a token for an account that has one. Lower-cased
+    /// here as well as at sign-in, so a comparison against a configured address cannot turn on how
+    /// somebody typed it.
+    /// </summary>
+    public string? Email
+    {
+        get
+        {
+            var raw = Principal?.FindFirstValue("email")?.Trim();
+            return string.IsNullOrEmpty(raw) ? null : raw.ToLowerInvariant();
+        }
+    }
+
     public bool IsAuthenticated => UserId.HasValue;
 
     public Guid RequireUserId() => UserId ?? throw new UnauthorizedException();

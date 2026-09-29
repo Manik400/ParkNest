@@ -89,7 +89,7 @@ public sealed class WalletService : IWalletService
             },
             bookingId,
             $"Hold {amount:0.00} credits for booking {bookingId}",
-            cancellationToken);
+            cancellationToken: cancellationToken);
 
         return wallet;
     }
@@ -104,6 +104,13 @@ public sealed class WalletService : IWalletService
             return wallet;
         }
 
+        // A release undoes (part of) the hold, so it points at it: that is what lets a wallet
+        // line say "returned from TXN-…" rather than leaving the renter to pair them up by amount.
+        var hold = await _db.LedgerTransactions
+            .Where(t => t.BookingId == bookingId && t.Type == LedgerTransactionType.Hold)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
         await _ledger.PostAsync(
             LedgerTransactionType.ReleaseHold,
             idempotencyKey,
@@ -114,6 +121,7 @@ public sealed class WalletService : IWalletService
             },
             bookingId,
             $"Release {amount:0.00} unused credits for booking {bookingId}",
+            hold,
             cancellationToken);
 
         return wallet;
@@ -146,7 +154,7 @@ public sealed class WalletService : IWalletService
                 },
                 bookingId,
                 $"Overstay debit {covered:0.00} credits for booking {bookingId}",
-                cancellationToken);
+                cancellationToken: cancellationToken);
         }
 
         return new OverstayDebitResult(covered, shortfall);
@@ -183,7 +191,7 @@ public sealed class WalletService : IWalletService
             postings,
             request.BookingId,
             $"Settle booking {request.BookingId}: {hostShare:0.00} to host, {fee:0.00} commission",
-            cancellationToken);
+            cancellationToken: cancellationToken);
 
         return new SettlementResult(gross, fee, hostShare);
     }
@@ -237,7 +245,7 @@ public sealed class WalletService : IWalletService
 
         // The ledger debit happens now so the credits cannot be double-spent while the payout is in
         // flight. A failed payout is corrected by a compensating Refund transaction, never a delete.
-        await _ledger.PostAsync(
+        var debit = await _ledger.PostAsync(
             LedgerTransactionType.Payout,
             idempotencyKey,
             new[]
@@ -247,6 +255,8 @@ public sealed class WalletService : IWalletService
             },
             description: $"Payout {amount:0.00} credits to host {hostId}",
             cancellationToken: cancellationToken);
+
+        payout.LedgerTransactionId = debit.Id;
 
         _db.Payouts.Add(payout);
         await _db.SaveChangesAsync(cancellationToken);
@@ -321,6 +331,7 @@ public sealed class WalletService : IWalletService
                 LedgerPosting.Credit(wallet.Id, LedgerAccountType.Earning, payout.Amount)
             },
             description: $"Refund failed payout {payout.Id}: {reason}",
+            revertsTransactionId: payout.LedgerTransactionId,
             cancellationToken: cancellationToken);
 
         payout.Status = PayoutStatus.Failed;

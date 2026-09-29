@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ParkNest.Application.Abstractions;
+using ParkNest.Application.Analytics;
 using ParkNest.Application.Auth;
 using ParkNest.Application.Bookings;
 using ParkNest.Application.Listings;
@@ -70,6 +71,15 @@ public sealed class TestHarness : IDisposable
         Listings = new ListingService(
             Db, PricingService, Clock, CurrentUser, new NoOpSpaceSearchCacheInvalidator());
         Events = new RecordingEventBus();
+
+        // The real recorder against the same in-memory database, so a test can assert on what was
+        // counted rather than on a spy that would not catch a column too narrow for its value.
+        AnalyticsOptions = new AnalyticsOptions();
+        Analytics = new AnalyticsRecorder(
+            Db,
+            Clock,
+            Microsoft.Extensions.Options.Options.Create(AnalyticsOptions),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<AnalyticsRecorder>.Instance);
         Bookings = new BookingService(Db, Wallets, PricingService, Clock, CurrentUser, wrapped, Events);
 
         AuthOptions = new AuthOptions
@@ -88,6 +98,7 @@ public sealed class TestHarness : IDisposable
             new IOtpSender[] { OtpSender, EmailSender },
             Clock,
             Microsoft.Extensions.Options.Options.Create(AuthOptions),
+            Analytics,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<AuthService>.Instance);
     }
 
@@ -105,6 +116,8 @@ public sealed class TestHarness : IDisposable
     public RecordingEventBus Events { get; }
     public IAuthService Auth { get; }
     public AuthOptions AuthOptions { get; }
+    public IAnalyticsRecorder Analytics { get; }
+    public AnalyticsOptions AnalyticsOptions { get; }
     /// <summary>The SMS channel. Named before email existed, and most auth tests are about phones.</summary>
     public RecordingOtpSender OtpSender { get; }
 
@@ -141,7 +154,7 @@ public sealed class TestHarness : IDisposable
     }
 
     public async Task<CityPricingConfig> AddBandAsync(
-        string city = "Bengaluru",
+        string city = "Gurgaon",
         VehicleType type = VehicleType.FourWheeler,
         decimal min = 20m,
         decimal max = 120m,
@@ -170,7 +183,7 @@ public sealed class TestHarness : IDisposable
         Guid hostId,
         decimal pricePerHour = 60m,
         VehicleType type = VehicleType.FourWheeler,
-        string city = "Bengaluru",
+        string city = "Gurgaon",
         IReadOnlyList<AvailabilityWindowRequest>? availabilityWindows = null)
     {
         CurrentUser.SignIn(hostId, UserRole.Host);
@@ -184,7 +197,7 @@ public sealed class TestHarness : IDisposable
             .ToArray();
 
         var space = await Listings.CreateDraftAsync(new CreateListingRequest(
-            "Driveway", "12 Main Rd", city, null, 12.97, 77.59, pricePerHour, new[] { type },
+            "Driveway", "12 Main Rd", city, null, 28.46, 77.03, pricePerHour, new[] { type },
             windows, TimeZone));
 
         return await Listings.PublishAsync(space.Id);

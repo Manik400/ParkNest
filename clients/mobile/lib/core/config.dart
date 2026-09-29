@@ -19,9 +19,17 @@ class AppConfig {
 
   static const String _override = String.fromEnvironment('PARKNEST_API_BASE_URL');
 
+  /// The hosted API on Render. A release build — the APK people download from the site — talks to
+  /// it unless told otherwise; debug builds stay on the developer's machine.
+  static const String hostedApi = 'https://parknest.onrender.com';
+
   static String get apiBaseUrl {
     if (_override.isNotEmpty) {
       return _override;
+    }
+
+    if (kReleaseMode) {
+      return hostedApi;
     }
 
     // Plain HTTP on purpose in development. The API's https profile serves a self-signed

@@ -292,6 +292,15 @@ public sealed class DisputeService : IDisputeService
                 source = LedgerPosting.Debit(hostWallet.Id, LedgerAccountType.Earning, refund);
             }
 
+            // Points at the settlement it corrects. The settlement itself stays exactly as it was
+            // — both parties keep seeing what they were charged — and this row is the one that
+            // says "and then this much came back".
+            var settlement = await _db.LedgerTransactions
+                .Where(t => t.BookingId == booking.Id && t.Type == LedgerTransactionType.Settlement)
+                .OrderBy(t => t.CreatedAt)
+                .Select(t => (Guid?)t.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
             var transaction = await _ledger.PostAsync(
                 LedgerTransactionType.AdminAdjustment,
                 $"dispute:{dispute.Id}",
@@ -302,6 +311,7 @@ public sealed class DisputeService : IDisputeService
                 },
                 booking.Id,
                 $"Dispute {dispute.Id} resolved: {refund:0.00} credits to the renter",
+                settlement,
                 cancellationToken);
 
             dispute.AdjustmentTransactionId = transaction.Id;

@@ -92,12 +92,27 @@ public sealed class ListingService : IListingService
             throw new DomainException("Only a host can create a listing.");
         }
 
+        // The city is picked from the catalogue, not typed: the band lookup is by name, and a
+        // renter who searched Bengaluru should not be shown a driveway whose host wrote Gurgaon.
+        var city = Cities.Find(request.City)
+                   ?? throw new DomainException(
+                       $"ParkNest is not in \"{request.City?.Trim()}\" yet. Pick a city from the list, or ask for yours to be added.");
+
+        // And the pin has to be in it. The search is by distance from where the renter is, so a
+        // Gurgaon listing whose marker was never moved off the map's default centre would turn
+        // up 760 metres from somebody in Bengaluru — which is exactly what happened.
+        if (!city.Contains(request.Latitude, request.Longitude))
+        {
+            throw new DomainException(
+                $"The pin is not in {city.Name}. Drag the marker onto the space's entrance, or pick the city the pin is in.");
+        }
+
         var space = new ParkingSpace
         {
             HostId = hostId,
             Title = request.Title,
             AddressLine = request.AddressLine,
-            City = request.City,
+            City = city.Name,
             Zone = request.Zone,
             Latitude = request.Latitude,
             Longitude = request.Longitude,

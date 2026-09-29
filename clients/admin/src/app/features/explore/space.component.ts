@@ -66,14 +66,25 @@ import { SearchService, describeLocal, toLocalInput } from '../../shared/search.
             @for (v of l.supportedVehicleTypes; track v) {
               <div><span class="ic"></span>Fits a {{ v === 'TwoWheeler' ? '2-wheeler' : '4-wheeler' }}</div>
             }
-            @if (l.availabilityWindows.length === 0) {
-              <div class="off"><span class="ic"></span>No hours published</div>
-            } @else {
-              @for (w of l.availabilityWindows; track $index) {
-                <div><span class="ic"></span>{{ dayName(w.dayOfWeek) }} {{ hours(w.startTime, w.endTime) }}</div>
-              }
-            }
           </div>
+
+          <!-- One line when it is the common case, a week otherwise. Seven tiles all saying
+               "24 hours" told the renter nothing except that there were seven of them. -->
+          <h2>When you can park</h2>
+          @if (l.availabilityWindows.length === 0) {
+            <p class="hours-note muted">The host has not published opening hours yet.</p>
+          } @else if (alwaysOpen()) {
+            <p class="hours-always"><span class="ic"></span>Open 24 hours, every day</p>
+          } @else {
+            <ul class="hours">
+              @for (row of hoursByDay(); track row.day) {
+                <li [class.closed]="!row.label">
+                  <span class="day">{{ row.day }}</span>
+                  <span>{{ row.label ?? 'Closed' }}</span>
+                </li>
+              }
+            </ul>
+          }
 
           <h2>Good to know</h2>
           <ul class="rules">
@@ -283,9 +294,47 @@ import { SearchService, describeLocal, toLocalInput } from '../../shared/search.
         font-weight: 500;
       }
 
-      .amenities .off {
-        opacity: 0.5;
-        text-decoration: line-through;
+      .hours-always {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 600;
+        margin: 0 0 34px;
+      }
+
+      .hours-note {
+        margin: 0 0 34px;
+      }
+
+      .hours {
+        list-style: none;
+        margin: 0 0 34px;
+        padding: 0;
+        max-width: 420px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-card);
+        overflow: hidden;
+      }
+
+      .hours li {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 10px 14px;
+        border-top: 1px solid var(--hairline);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .hours li:first-child {
+        border-top: 0;
+      }
+
+      .hours .day {
+        font-weight: 600;
+      }
+
+      .hours .closed {
+        color: var(--ink-muted);
       }
 
       .ic {
@@ -590,8 +639,36 @@ export class SpaceComponent implements OnInit {
   hours(start: string, end: string): string {
     const from = start.slice(0, 5);
     const to = end.slice(0, 5);
-    return from === to ? '24 hours' : `${from}–${to}`;
+    return from === to ? 'All day' : `${from}–${to}`;
   }
+
+  /** The week as seven rows, Monday first, with the days the space is shut said so. */
+  readonly hoursByDay = computed(() => {
+    const l = this.listing();
+
+    if (!l) {
+      return [];
+    }
+
+    // Monday first: that is how people read a week, whatever the enum starts on.
+    return [1, 2, 3, 4, 5, 6, 0].map((day) => {
+      // The API writes enums as their names ("Monday"), so match on the name; the number is
+      // accepted too in case that ever changes.
+      const windows = l.availabilityWindows.filter(
+        (w) => w.dayOfWeek === day || String(w.dayOfWeek) === DAY_NAMES[day],
+      );
+
+      return {
+        day: DAY_NAMES[day],
+        label: windows.length === 0 ? null : windows.map((w) => this.hours(w.startTime, w.endTime)).join(', '),
+      };
+    });
+  });
+
+  readonly alwaysOpen = computed(() => {
+    const rows = this.hoursByDay();
+    return rows.length === 7 && rows.every((r) => r.label === 'All day');
+  });
 
   reserve(): void {
     const l = this.listing();

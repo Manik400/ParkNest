@@ -4,8 +4,10 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
+import { TelemetryService } from '../../core/telemetry.service';
 import { NearbySpace, VehicleType } from '../../core/models';
 import { LocationService } from '../../shared/location.service';
+import { CitySelectComponent } from '../../shared/city-select.component';
 import { ResultsMapComponent } from '../../shared/results-map.component';
 import {
   CITIES,
@@ -40,16 +42,16 @@ const VEHICLE_OPTIONS: Array<{ label: string; type: VehicleType | null }> = [
 @Component({
   selector: 'app-explore',
   standalone: true,
-  imports: [DecimalPipe, FormsModule, ResultsMapComponent],
+  imports: [DecimalPipe, FormsModule, ResultsMapComponent, CitySelectComponent],
   template: `
     <div class="bar">
       <form class="where" (ngSubmit)="applySearch()">
-        <input class="area" name="area" placeholder="Area, e.g. Indiranagar" autocomplete="off" [(ngModel)]="area" />
-        <select class="city" name="city" [(ngModel)]="city" aria-label="City">
-          @for (c of cities; track c) {
-            <option [value]="c">{{ c }}</option>
-          }
-        </select>
+        <input class="area" name="area" placeholder="Area, e.g. Cyber City" autocomplete="off" [(ngModel)]="area" />
+        @if (cities.length > 1) {
+          <app-city-select class="city" name="city" [bare]="true" [options]="cities" [(ngModel)]="city" />
+        } @else {
+          <span class="city fixed-city">{{ city }}</span>
+        }
         <span class="sep"></span>
         <input class="when" name="from" type="datetime-local" [(ngModel)]="startLocal" aria-label="From" />
         <select class="hours" name="hours" [(ngModel)]="hours" aria-label="For how long">
@@ -197,8 +199,16 @@ const VEHICLE_OPTIONS: Array<{ label: string; type: VehicleType | null }> = [
       }
 
       .city {
-        flex: 0 0 auto;
+        flex: 0 0 130px;
+        height: 40px;
+        font: 600 14px/1 var(--font-body);
         color: var(--ink-muted);
+      }
+
+      .fixed-city {
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
       }
 
       .sep {
@@ -452,6 +462,7 @@ const VEHICLE_OPTIONS: Array<{ label: string; type: VehicleType | null }> = [
 })
 export class ExploreComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly telemetry = inject(TelemetryService);
   private readonly router = inject(Router);
   private readonly location = inject(LocationService);
   private readonly search = inject(SearchService);
@@ -590,6 +601,7 @@ export class ExploreComponent implements OnInit {
     }
     this.loading.set(true);
     this.error.set(null);
+    this.telemetry.search();
 
     this.api
       .searchNearby(

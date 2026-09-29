@@ -5,6 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
 import { BookingSummary } from '../../core/models';
+import { CitySelectComponent } from '../../shared/city-select.component';
 import { CITIES, POPULAR_AREAS, SearchService, describeLocal } from '../../shared/search.service';
 
 /**
@@ -14,24 +15,25 @@ import { CITIES, POPULAR_AREAS, SearchService, describeLocal } from '../../share
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [DecimalPipe, FormsModule, RouterLink],
+  imports: [DecimalPipe, FormsModule, RouterLink, CitySelectComponent],
   template: `
     <section class="hero">
       <h1 class="display">Park in someone's driveway, not three blocks away.</h1>
       <p class="lede">Real spaces from people who live there. Pay by the hour from your ParkNest balance.</p>
 
       <form class="search" (ngSubmit)="find()">
-        <label class="cell">
+        <div class="cell">
           <span class="overline">City</span>
-          <select name="city" [(ngModel)]="city" (ngModelChange)="area = ''">
-            @for (c of cities; track c) {
-              <option [value]="c">{{ c }}</option>
-            }
-          </select>
-        </label>
+          <!-- One live city: say it, don't offer a choice of one. The picker returns with the second. -->
+          @if (cities.length > 1) {
+            <app-city-select name="city" [bare]="true" [options]="cities" [(ngModel)]="city" (ngModelChange)="area = ''" />
+          } @else {
+            <span class="fixed-city">{{ city }}</span>
+          }
+        </div>
         <label class="cell">
           <span class="overline">Area</span>
-          <input name="area" list="areas" placeholder="Indiranagar" autocomplete="off" [(ngModel)]="area" />
+          <input name="area" list="areas" placeholder="Cyber City" autocomplete="off" [(ngModel)]="area" />
           <datalist id="areas">
             @for (a of areas(); track a) {
               <option [value]="a"></option>
@@ -171,13 +173,23 @@ import { CITIES, POPULAR_AREAS, SearchService, describeLocal } from '../../share
       }
 
       .cell input,
-      .cell select {
+      .cell select,
+      .cell app-city-select {
         width: 100%;
         height: 34px;
         padding: 0 6px;
         border: 0;
         border-radius: 8px;
         background: transparent;
+        font: 600 16px/1 var(--font-body);
+        color: var(--ink);
+      }
+
+      .fixed-city {
+        display: flex;
+        align-items: center;
+        height: 34px;
+        padding: 0 6px;
         font: 600 16px/1 var(--font-body);
         color: var(--ink);
       }

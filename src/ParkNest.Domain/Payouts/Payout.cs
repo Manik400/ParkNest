@@ -15,6 +15,9 @@ public class Payout
     /// <summary>Aggregator-side payout id, once accepted.</summary>
     public string? ProviderReference { get; set; }
 
+    /// <summary>The ledger debit that reserved the credits, so a failure can point its refund at it.</summary>
+    public Guid? LedgerTransactionId { get; set; }
+
     public PayoutStatus Status { get; set; } = PayoutStatus.Requested;
     public string? FailureReason { get; set; }
 

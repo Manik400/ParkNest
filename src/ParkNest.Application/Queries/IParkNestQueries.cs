@@ -85,8 +85,15 @@ public sealed record ListingDetail(
 
 public sealed record AvailabilityWindowView(DayOfWeek DayOfWeek, TimeOnly StartTime, TimeOnly EndTime);
 
+/// <param name="Reference">The id a person quotes, <c>TXN-…</c>.</param>
+/// <param name="RevertsReference">
+/// Set when this transaction undoes an earlier one — the hold a release returns, the settlement
+/// a dispute adjusts — so a wallet line can say which.
+/// </param>
 public sealed record LedgerEntrySummary(
     Guid TransactionId,
+    string Reference,
+    string? RevertsReference,
     string TransactionType,
     string Account,
     string Direction,

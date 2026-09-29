@@ -1,8 +1,10 @@
+import { DecimalPipe } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { ApiService } from '../../core/api.service';
-import { Profile } from '../../core/models';
+import { AuthService } from '../../core/auth.service';
+import { DataResetInfo, DataResetResult, PlatformRevenue, Profile } from '../../core/models';
 
 /**
  * The account as its owner sees it. The sign-in contacts are shown, not edited: attaching an
@@ -13,7 +15,7 @@ import { Profile } from '../../core/models';
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [FormsModule],
+  imports: [DecimalPipe, FormsModule],
   template: `
     <div class="stack">
       <div>
@@ -81,6 +83,77 @@ import { Profile } from '../../core/models';
             </div>
           </form>
         </section>
+
+        @if (auth.isAdmin()) {
+          <section class="card stack">
+            <div>
+              <h2>Platform</h2>
+              <p class="muted">What ParkNest itself has kept. Read off the ledger's own account, so there is no second copy of this number to drift.</p>
+            </div>
+            @if (revenue(); as r) {
+              <div class="revenue">
+                <div>
+                  <div class="overline">Commission kept, all time</div>
+                  <div class="big">₹{{ r.total | number: '1.2-2' }}</div>
+                </div>
+                <div>
+                  <div class="overline">This month</div>
+                  <div class="big">₹{{ r.thisMonth | number: '1.2-2' }}</div>
+                </div>
+              </div>
+              <p class="muted small">
+                ₹{{ r.earned | number: '1.2-2' }} earned across {{ r.settlements }}
+                {{ r.settlements === 1 ? 'settlement' : 'settlements' }};
+                ₹{{ r.givenBack | number: '1.2-2' }} given back through disputes.
+              </p>
+            } @else {
+              <p class="muted">Loading…</p>
+            }
+          </section>
+
+          <section class="card stack danger-zone">
+            <div>
+              <h2>Reset all data</h2>
+              @if (resetInfo(); as info) {
+                @if (!info.allowed) {
+                  <p class="muted">Switched off in this environment (<code>Maintenance:AllowDataReset</code>).</p>
+                } @else {
+                  <p class="muted">
+                    Deletes every booking, wallet, ledger row, listing, payment order, dispute,
+                    rating, notification and analytics event. Accounts and price bands survive;
+                    every balance goes back to zero. For a pilot on a free database, not for a
+                    platform with real money in it.
+                  </p>
+                }
+              }
+            </div>
+
+            @if (resetInfo(); as info) {
+              @if (info.allowed) {
+                @if (resetResult(); as result) {
+                  <div class="banner banner--success" role="status">
+                    Done. {{ rowsRemoved(result) | number }} rows removed across {{ tableCount(result) }} tables.
+                    Kept: {{ result.kept.join(', ') }}.
+                  </div>
+                }
+                <div>
+                  <label for="confirm">Type <code>{{ info.confirmationPhrase }}</code> to confirm</label>
+                  <input id="confirm" name="confirm" [(ngModel)]="confirmation" autocomplete="off" />
+                </div>
+                <div class="row">
+                  <button
+                    type="button"
+                    class="danger"
+                    [disabled]="busy() || confirmation.trim() !== info.confirmationPhrase"
+                    (click)="reset(info.confirmationPhrase)"
+                  >
+                    {{ busy() ? 'Deleting…' : 'Delete everything except accounts and price bands' }}
+                  </button>
+                </div>
+              }
+            }
+          </section>
+        }
       }
     </div>
   `,
@@ -98,11 +171,38 @@ import { Profile } from '../../core/models';
       .facts dd {
         margin: 0;
       }
+
+      .revenue {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+      }
+
+      .big {
+        font: 600 30px/1.1 var(--font-display);
+        letter-spacing: -0.03em;
+        margin-top: 6px;
+      }
+
+      .danger-zone {
+        border-color: var(--danger-border);
+      }
+
+      code {
+        font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+        font-size: 12.5px;
+      }
     `,
   ],
 })
 export class ProfileComponent implements OnInit {
   private readonly api = inject(ApiService);
+  readonly auth = inject(AuthService);
+
+  readonly revenue = signal<PlatformRevenue | null>(null);
+  readonly resetInfo = signal<DataResetInfo | null>(null);
+  readonly resetResult = signal<DataResetResult | null>(null);
+  confirmation = '';
 
   readonly profile = signal<Profile | null>(null);
   readonly loading = signal(true);
@@ -113,7 +213,58 @@ export class ProfileComponent implements OnInit {
   fullName = '';
   paymentPhone = '';
 
+  rowsRemoved(result: DataResetResult): number {
+    return Object.values(result.rowsRemoved).reduce((sum, n) => sum + n, 0);
+  }
+
+  tableCount(result: DataResetResult): number {
+    return Object.keys(result.rowsRemoved).length;
+  }
+
+  reset(phrase: string): void {
+    // A second, native confirmation on top of the typed phrase. The phrase proves intent; this
+    // catches the Enter key landing on the wrong button.
+    if (!confirm('This deletes every booking, wallet and listing on the platform. Continue?')) {
+      return;
+    }
+
+    this.busy.set(true);
+    this.error.set(null);
+    this.resetResult.set(null);
+
+    this.api.resetData(phrase).subscribe({
+      next: (result) => {
+        this.busy.set(false);
+        this.confirmation = '';
+        this.resetResult.set(result);
+        this.loadPlatform();
+      },
+      error: (err: Error) => {
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  private loadPlatform(): void {
+    if (!this.auth.isAdmin()) {
+      return;
+    }
+
+    this.api.platformRevenue().subscribe({
+      next: (revenue) => this.revenue.set(revenue),
+      error: (err: Error) => this.error.set(err.message),
+    });
+
+    this.api.resetInfo().subscribe({
+      next: (info) => this.resetInfo.set(info),
+      error: () => this.resetInfo.set({ allowed: false, confirmationPhrase: '' }),
+    });
+  }
+
   ngOnInit(): void {
+    this.loadPlatform();
+
     this.api.getProfile().subscribe({
       next: (me) => {
         this.profile.set(me);
