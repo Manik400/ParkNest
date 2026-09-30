@@ -3,7 +3,9 @@
 
 param(
     [string]$Url = 'https://parknest.onrender.com/health',
-    [int]$TimeoutSeconds = 90
+    [int]$TimeoutSeconds = 90,
+    [int]$RotateHours = 6,
+    [int]$KeepArchiveHours = 24
 )
 
 $logDir = Join-Path $env:LOCALAPPDATA 'ParkNest'
@@ -33,19 +35,26 @@ while ($true) {
             $_.Exception.Message
     }
 
-    # Keep approximately the last 1 day of logs. Best effort: a full disk or a locked file must
-    # never stop the pinging, which is the only part that matters.
+    # Every 6 hours the log is moved to an archive file, and archives older than 1 day are deleted.
+    # Best effort: a full disk or a locked file must never stop the pinging, which is the only part
+    # that matters.
     try {
-        $lines = @()
         if (Test-Path $log) {
-            $lines = @(Get-Content $log -Tail 8639 -ErrorAction Stop)
+            $first = Get-Content $log -TotalCount 1 -ErrorAction Stop
+            $firstTime = [datetime]::MinValue
+            if ($first -and [datetime]::TryParseExact($first.Substring(0, [Math]::Min(19, $first.Length)),
+                    'yyyy-MM-dd HH:mm:ss', $null, 'None', [ref]$firstTime) -and
+                    ($started - $firstTime) -ge [timespan]::FromHours($RotateHours)) {
+                $archive = Join-Path $logDir ('keep-awake-{0:yyyyMMdd-HHmmss}.log' -f $started)
+                Move-Item $log $archive -ErrorAction Stop
+            }
         }
 
-        Set-Content `
-            -Path $log `
-            -Value ($lines + $line) `
-            -Encoding utf8 `
-            -ErrorAction Stop
+        Get-ChildItem $logDir -Filter 'keep-awake-*.log' -ErrorAction Stop |
+            Where-Object LastWriteTime -lt $started.AddHours(-$KeepArchiveHours) |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+
+        Add-Content -Path $log -Value $line -Encoding utf8 -ErrorAction Stop
     }
     catch {
     }
